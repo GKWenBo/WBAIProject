@@ -34,6 +34,42 @@ final class WBChatAppUITests: XCTestCase {
         XCTAssertTrue(replyFragment.waitForExistence(timeout: 30))
     }
 
+    /// 回归测试：流式输出中用户上翻查看历史后，视口必须保持不动，不得被自动拉回底部
+    /// （曾因用 GeometryReader 偏好测滚动偏移在新系统 ScrollView 上读数冻结而失效）
+    @MainActor
+    func testStreamingKeepsScrollPositionWhenUserScrollsUp() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let input = app.textFields["chat.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5))
+        input.tap()
+        input.typeText("hello")
+        app.buttons["chat.send"].tap()
+
+        // 用户消息上屏后，等内容长出一屏以上（mock 全程约 6 秒）
+        let userMessage = app.staticTexts["hello"]
+        XCTAssertTrue(userMessage.waitForExistence(timeout: 5))
+        sleep(2)
+
+        // 流式进行中向上翻（手指下滑），等滚动与键盘收起落定
+        let list = app.scrollViews.firstMatch
+        list.swipeDown()
+        usleep(600_000)
+
+        // 记录首条消息位置；流式仍在继续输出
+        XCTAssertTrue(userMessage.exists, "上翻后首条消息应可见")
+        let frameAfterSwipe = userMessage.frame
+
+        // 等待期间 mock 仍在追加内容，若自动跟随未解除会被拉回底部
+        sleep(2)
+        XCTAssertTrue(userMessage.exists, "流式输出不得把视口拉回底部")
+        XCTAssertEqual(
+            userMessage.frame.minY, frameAfterSwipe.minY, accuracy: 3,
+            "用户上翻后视口应保持不动"
+        )
+    }
+
     /// 回归测试：设置页以 sheet 弹出时必须能取到 AppSettings 环境对象（曾因注入顺序崩溃）
     @MainActor
     func testOpensSettingsSheet() throws {
