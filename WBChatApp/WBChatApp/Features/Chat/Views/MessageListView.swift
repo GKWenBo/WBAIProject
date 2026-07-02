@@ -40,15 +40,22 @@ struct MessageListView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 20) {
                         ForEach(conversation.sortedMessages) { message in
-                            MessageBubbleView(
-                                message: message,
-                                isLastAssistantMessage: message.id == lastAssistantMessageID,
-                                viewModel: viewModel
-                            )
-                            .id(message.id)
+                            // 重新生成中的消息：原地替换为流式气泡，旧内容立即让位给新结果
+                            if message.id == viewModel.regeneratingMessageID {
+                                StreamingBubbleView(viewModel: viewModel)
+                                    .id(message.id)
+                            } else {
+                                MessageBubbleView(
+                                    message: message,
+                                    isLastAssistantMessage: message.id == lastAssistantMessageID,
+                                    viewModel: viewModel
+                                )
+                                .id(message.id)
+                            }
                         }
 
-                        if viewModel.isStreaming {
+                        // 仅新消息生成时在底部追加流式气泡；重新生成已在原位渲染
+                        if viewModel.isStreaming && viewModel.regeneratingMessageID == nil {
                             StreamingBubbleView(viewModel: viewModel)
                         }
 

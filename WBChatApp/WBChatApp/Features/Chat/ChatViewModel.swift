@@ -18,6 +18,9 @@ final class ChatViewModel {
     var draft = ""
     var isDeepThinkingEnabled = false
     var isStreaming = false
+    /// 正在被「重新生成」的消息 id；`nil` 表示当前是新消息生成而非重新生成。
+    /// 用于让 UI 把流式内容原地替换到该条消息，而不是在底部另起气泡。
+    private(set) var regeneratingMessageID: UUID?
     /// 正在流式生成的正文/思考过程（结束后落库并清空）
     private(set) var streamingContent = ""
     private(set) var streamingReasoning = ""
@@ -102,6 +105,7 @@ final class ChatViewModel {
 
     private func stream(into conversation: Conversation, history: [ChatMessagePayload], regenerating target: Message?) {
         isStreaming = true
+        regeneratingMessageID = target?.id
         streamingContent = ""
         streamingReasoning = ""
         errorMessage = nil
@@ -139,6 +143,7 @@ final class ChatViewModel {
     private func finishStreaming(content: String, reasoning: String, conversation: Conversation, target: Message?) {
         defer {
             isStreaming = false
+            regeneratingMessageID = nil
             streamingContent = ""
             streamingReasoning = ""
             streamTask = nil
