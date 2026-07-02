@@ -16,7 +16,7 @@ extension Theme {
 
 }
 
-/// 代码块卡片：语言标签 + 复制按钮 + 横向滚动的等宽代码
+/// 代码块卡片：语言标签 + 复制按钮 + 自动换行的等宽代码
 private struct CodeBlockView: View {
 
     let configuration: CodeBlockConfiguration
@@ -37,15 +37,14 @@ private struct CodeBlockView: View {
 
             Divider()
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                configuration.label
-                    .relativeLineSpacing(.em(0.25))
-                    .markdownTextStyle {
-                        FontFamilyVariant(.monospaced)
-                        FontSize(.em(0.85))
-                    }
-                    .padding(12)
-            }
+            configuration.label
+                .relativeLineSpacing(.em(0.25))
+                .markdownTextStyle {
+                    FontFamilyVariant(.monospaced)
+                    FontSize(.em(0.85))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
         }
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
