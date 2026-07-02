@@ -16,12 +16,12 @@ enum UITestSeeder {
         ProcessInfo.processInfo.arguments.contains(launchArgument)
     }
 
-    /// 预填输入框草稿，并在库为空时插入几条带时间分组的历史会话
+    /// 预填输入框草稿，并重建几条带时间分组的历史会话
     static func seed(context: ModelContext, chatViewModel: ChatViewModel) {
         chatViewModel.draft = "写一个快速排序 Swift"
 
-        let count = (try? context.fetchCount(FetchDescriptor<Conversation>())) ?? 0
-        guard count == 0 else { return }
+        // 先清空历史（克隆模拟器可能残留旧数据），保证截图/测试结果确定
+        try? context.delete(model: Conversation.self)
 
         let calendar = Calendar.current
         let yesterday = calendar.date(byAdding: .day, value: -1, to: .now) ?? .now

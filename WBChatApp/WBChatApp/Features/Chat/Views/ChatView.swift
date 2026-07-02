@@ -64,7 +64,6 @@ struct ChatView: View {
                     .foregroundStyle(.primary)
             }
             .accessibilityIdentifier("chat.menu")
-            .accessibilityIdentifier("chat.menu")
 
             Spacer()
 
