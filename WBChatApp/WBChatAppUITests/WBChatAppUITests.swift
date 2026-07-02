@@ -2,40 +2,54 @@
 //  WBChatAppUITests.swift
 //  WBChatAppUITests
 //
-//  Created by 文波 on 2026/7/2.
-//
 
 import XCTest
 
 final class WBChatAppUITests: XCTestCase {
 
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
     }
 
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
-
+    /// 冒烟测试：发送消息后（演示模式）能流式生成并渲染出回复
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testSendMessageStreamsMockReply() throws {
         let app = XCUIApplication()
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
+        let input = app.textFields["chat.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5))
+        input.tap()
+        input.typeText("hello")
+
+        let sendButton = app.buttons["chat.send"]
+        XCTAssertTrue(sendButton.isEnabled)
+        sendButton.tap()
+
+        // 用户消息立即上屏
+        XCTAssertTrue(app.staticTexts["hello"].waitForExistence(timeout: 5))
+
+        // Mock 客户端按 token 流式输出，等待回复中的关键内容渲染完成
+        let replyFragment = app.staticTexts["Swift 快速排序示例"]
+        XCTAssertTrue(replyFragment.waitForExistence(timeout: 30))
+    }
+
+    /// 回归测试：设置页以 sheet 弹出时必须能取到 AppSettings 环境对象（曾因注入顺序崩溃）
+    @MainActor
+    func testOpensSettingsSheet() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let openSettings = app.buttons["前往设置配置 DeepSeek API Key"]
+        XCTAssertTrue(openSettings.waitForExistence(timeout: 5))
+        openSettings.tap()
+
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["DeepSeek API"].exists)
     }
 
     @MainActor
     func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()
         }
