@@ -30,6 +30,7 @@ struct SettingsView: View {
                 } footer: {
                     Text("API Key 保存在系统钥匙串。未配置时使用内置演示数据。开启「深度思考」后自动切换为 deepseek-reasoner。可前往 platform.deepseek.com 申请 Key。")
                 }
+                .listRowBackground(Color(.secondarySystemBackground))
 
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
@@ -47,6 +48,7 @@ struct SettingsView: View {
                 } footer: {
                     Text("值越高回答越发散，代码类任务建议 0.0，通用对话建议 1.0。")
                 }
+                .listRowBackground(Color(.secondarySystemBackground))
 
                 Section("关于") {
                     LabeledContent("版本", value: "1.0")
@@ -55,7 +57,11 @@ struct SettingsView: View {
                         value: settings.isConfigured ? "已配置 API Key" : "演示模式"
                     )
                 }
+                .listRowBackground(Color(.secondarySystemBackground))
             }
+            // 与聊天页统一为白底，分组卡片用与输入栏一致的灰色，避免弹出时背景分层
+            .scrollContentBackground(.hidden)
+            .background(Color(.systemBackground))
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

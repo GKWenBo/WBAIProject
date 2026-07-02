@@ -46,6 +46,7 @@ final class WBChatAppUITests: XCTestCase {
 
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["DeepSeek API"].exists)
+        attachScreenshot(named: "settings")
     }
 
     /// 生成 README 用的三张截图（流式输出 / 深度思考 / 抽屉），从测试结果包导出
