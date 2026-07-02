@@ -4,6 +4,12 @@
 
 > 未配置 API Key 时自动进入**演示模式**（内置 Mock 流式数据源），无网络也能完整体验所有交互。
 
+## 预览
+
+| 流式输出 | 深度思考 | 会话抽屉 |
+| :---: | :---: | :---: |
+| ![流式输出](Screenshots/streaming.png) | ![深度思考](Screenshots/deep-thinking.png) | ![会话抽屉](Screenshots/drawer.png) |
+
 ## 功能
 
 | 功能 | 说明 |

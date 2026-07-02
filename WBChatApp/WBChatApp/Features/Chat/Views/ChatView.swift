@@ -63,6 +63,8 @@ struct ChatView: View {
                     .font(.title3.weight(.medium))
                     .foregroundStyle(.primary)
             }
+            .accessibilityIdentifier("chat.menu")
+            .accessibilityIdentifier("chat.menu")
 
             Spacer()
 

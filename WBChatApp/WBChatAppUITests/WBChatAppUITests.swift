@@ -48,6 +48,52 @@ final class WBChatAppUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["DeepSeek API"].exists)
     }
 
+    /// 生成 README 用的三张截图（流式输出 / 深度思考 / 抽屉），从测试结果包导出
+    @MainActor
+    func testCaptureReadmeScreenshots() throws {
+        var app = launchSeededApp()
+
+        // 1. 流式输出中途截图（种子草稿已预填，直接发送）
+        app.buttons["chat.send"].tap()
+        sleep(3)
+        attachScreenshot(named: "streaming")
+
+        // 等首条回复渲染完成
+        XCTAssertTrue(app.staticTexts["Swift 快速排序示例"].waitForExistence(timeout: 30))
+
+        // 2. 重启拿到新的种子草稿，开深度思考后发送，截推理过程
+        app.terminate()
+        app = launchSeededApp()
+        app.buttons["深度思考"].tap()
+        app.buttons["chat.send"].tap()
+        XCTAssertTrue(app.staticTexts["思考过程"].waitForExistence(timeout: 10))
+        sleep(2)
+        attachScreenshot(named: "deep-thinking")
+
+        // 3. 打开抽屉截会话列表（含时间分组）
+        XCTAssertTrue(app.staticTexts["Swift 快速排序示例"].waitForExistence(timeout: 30))
+        app.buttons["chat.menu"].tap()
+        sleep(1)
+        attachScreenshot(named: "drawer")
+    }
+
+    @MainActor
+    private func launchSeededApp() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitest-seed"]
+        app.launch()
+        XCTAssertTrue(app.textFields["chat.input"].waitForExistence(timeout: 5))
+        return app
+    }
+
+    @MainActor
+    private func attachScreenshot(named name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     @MainActor
     func testLaunchPerformance() throws {
         measure(metrics: [XCTApplicationLaunchMetric()]) {

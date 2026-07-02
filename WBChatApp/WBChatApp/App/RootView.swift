@@ -35,6 +35,11 @@ struct RootView: View {
         .environment(settings)
         .onAppear {
             chatViewModel.configure(context: modelContext)
+            #if DEBUG
+            if UITestSeeder.isEnabled {
+                UITestSeeder.seed(context: modelContext, chatViewModel: chatViewModel)
+            }
+            #endif
         }
     }
 
