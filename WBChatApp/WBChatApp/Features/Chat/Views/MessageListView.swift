@@ -20,6 +20,9 @@ struct MessageListView: View {
     let conversation: Conversation
     @Bindable var viewModel: ChatViewModel
 
+    /// 抽屉横向拖动中：暂时禁用本列表滚动，避免上下滑与抽屉手势冲突
+    @Environment(\.isDrawerInteracting) private var isDrawerInteracting
+
     private static let bottomAnchorID = "bottom-anchor"
     private static let coordinateSpace = "message-scroll"
     /// 底部跟随阈值：滚动落定时距内容底部小于该值才保持/恢复自动跟随（单位 pt）
@@ -79,6 +82,7 @@ struct MessageListView: View {
                 }
                 .coordinateSpace(name: Self.coordinateSpace)
                 .scrollDismissesKeyboard(.interactively)
+                .scrollDisabled(isDrawerInteracting)
                 // iOS 18+：从滚动系统读取权威的距底距离与交互阶段
                 .modifier(
                     ScrollFollowTracking(
