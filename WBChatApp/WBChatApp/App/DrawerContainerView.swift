@@ -5,7 +5,7 @@
 
 import SwiftUI
 
-/// 抽屉容器：左侧抽屉常驻，主内容随手势平移，展开时带圆角与遮罩
+/// 抽屉容器：左侧抽屉常驻，主内容随手势平移，展开时带圆角与阴影（ChatGPT 风格）
 struct DrawerContainerView<Drawer: View, Content: View>: View {
 
     @Binding var isOpen: Bool
@@ -16,11 +16,12 @@ struct DrawerContainerView<Drawer: View, Content: View>: View {
     /// @GestureState 在松手瞬间会无动画地重置为 0（界面先跳回再播动画），
     /// @State 才能让位移与 isOpen 在同一个动画里从当前位置一起归位
     @State private var dragTranslation: CGFloat = 0
-    /// 灰色底是否点亮：开合动画期间保持全不透明，避免安全区露出白底
-    @State private var showsBackdrop = false
+    /// 手势激活首帧的位移基准：DragGesture 有 24pt 启动阈值，
+    /// 首帧 translation 已带上这段位移，扣除后拖动才能从 0 开始跟手不跳变
+    @State private var dragBaseX: CGFloat?
 
-    /// 抽屉占屏宽比例
     private static var drawerWidthRatio: CGFloat { 0.82 }
+    private static var maxCornerRadius: CGFloat { 40 }
     private static var settleAnimation: Animation { .spring(response: 0.35, dampingFraction: 0.85) }
 
     var body: some View {
@@ -29,6 +30,12 @@ struct DrawerContainerView<Drawer: View, Content: View>: View {
             let baseOffset = isOpen ? drawerWidth : 0
             let offset = min(max(baseOffset + dragTranslation, 0), drawerWidth)
             let progress = offset / drawerWidth
+            // 含安全区的整屏尺寸：让圆角出现在屏幕物理四角而非安全区边缘
+            let fullSize = CGSize(
+                width: proxy.size.width + proxy.safeAreaInsets.leading + proxy.safeAreaInsets.trailing,
+                height: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom
+            )
+            let maskCenterOffsetY = (proxy.safeAreaInsets.bottom - proxy.safeAreaInsets.top) / 2
 
             ZStack(alignment: .leading) {
                 drawer()
@@ -36,43 +43,27 @@ struct DrawerContainerView<Drawer: View, Content: View>: View {
                     .offset(x: (progress - 1) * 40)
 
                 content()
-                    .clipShape(RoundedRectangle(cornerRadius: progress * 28))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // 圆角随进度放大：关闭时为 0，无需切角，不会露出下层背景
+                    .mask {
+                        RoundedRectangle(cornerRadius: Self.maxCornerRadius, style: .continuous)
+                            .frame(width: fullSize.width, height: fullSize.height)
+                            .offset(y: maskCenterOffsetY)
+                    }
                     .overlay {
-                        // 遮罩常驻以便随 progress 平滑淡入淡出；仅展开时拦截点击用于收起
-                        Color.black.opacity(0.08 * progress)
-                            .clipShape(RoundedRectangle(cornerRadius: progress * 28))
+                        Rectangle()
+                            .fill(.clear)
+                            .contentShape(Rectangle())
                             .allowsHitTesting(isOpen)
                             .onTapGesture { settle(open: false) }
                     }
                     .shadow(color: .black.opacity(0.15 * progress), radius: 16, x: -4, y: 0)
                     .offset(x: offset)
             }
-            .background {
-                // 主内容被 clipShape 裁掉了安全区的背景延伸，安全区露出的是这里的底色。
-                // 灰色不做渐变：打开瞬间点亮、收起动画结束后才熄灭，
-                // 两个切换时机主内容都恰好铺满全屏，因此开合动画全程不会露白
-                ZStack {
-                    Color(.systemBackground)
-                    Color(.secondarySystemBackground)
-                        .opacity(showsBackdrop ? 1 : 0)
-                        .transaction { $0.animation = nil }
-                }
-                .ignoresSafeArea()
-            }
-            .gesture(dragGesture(drawerWidth: drawerWidth))
+            .background(Color(.secondarySystemBackground).ignoresSafeArea())
+            .simultaneousGesture(dragGesture(drawerWidth: drawerWidth))
         }
         .ignoresSafeArea(.keyboard, edges: isOpen ? .bottom : [])
-        .onAppear {
-            showsBackdrop = isOpen
-        }
-        .onChange(of: isOpen) { _, newValue in
-            // 兼容外部开合（菜单按钮、选中会话）：开灯要立即，熄灯要等动画结束
-            if newValue {
-                showsBackdrop = true
-            } else {
-                dismissBackdropAfterSettle()
-            }
-        }
     }
 
     // MARK: - Gesture
@@ -80,14 +71,15 @@ struct DrawerContainerView<Drawer: View, Content: View>: View {
     private func dragGesture(drawerWidth: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 24, coordinateSpace: .local)
             .onChanged { value in
-                // 只响应横向为主的拖动，避免抢消息列表的纵向滚动
                 guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                dragTranslation = value.translation.width
-                showsBackdrop = true
+                let base = dragBaseX ?? value.translation.width
+                dragBaseX = base
+                dragTranslation = value.translation.width - base
             }
             .onEnded { value in
-                guard dragTranslation != 0 else { return }
-                let predicted = value.predictedEndTranslation.width
+                guard let base = dragBaseX else { return }
+                dragBaseX = nil
+                let predicted = value.predictedEndTranslation.width - base
                 let shouldOpen = isOpen
                     ? predicted >= -drawerWidth / 3
                     : predicted > drawerWidth / 3
@@ -97,24 +89,10 @@ struct DrawerContainerView<Drawer: View, Content: View>: View {
 
     // MARK: - Settle
 
-    /// 从当前位置动画到目标状态：isOpen 与拖拽位移在同一个动画里归位
     private func settle(open: Bool) {
         withAnimation(Self.settleAnimation) {
             isOpen = open
             dragTranslation = 0
-        }
-        if !open {
-            dismissBackdropAfterSettle()
-        }
-    }
-
-    /// 收起动画结束后再熄灭灰色底（提前熄会在卡片滑回途中露白）
-    private func dismissBackdropAfterSettle() {
-        Task {
-            try? await Task.sleep(for: .milliseconds(500))
-            if !isOpen && dragTranslation == 0 {
-                showsBackdrop = false
-            }
         }
     }
 }
