@@ -51,7 +51,7 @@ flowchart LR
 - **流式管道**：`URLSession.bytes(for:)` 逐行读取 SSE → 纯函数 `SSEParser` 解析 → `AsyncThrowingStream` 吐增量 → ViewModel 节流合批更新 `@Observable` 状态。消费方取消时通过 `onTermination` 自动断开请求。
 - **协议抽象**：网络层只暴露 `ChatStreaming` 协议，真实客户端与 Mock 客户端可互换——既支撑演示模式，也让流式逻辑可测。
 - **多版本消息**：`Message.contents` 存全部生成版本，`currentVersionIndex` 指向当前展示版本，重新生成即追加，天然支持版本回看。
-- **性能**：流式期间按 50ms 节流刷新，避免每 token 触发 Markdown 重解析；消息列表 `LazyVStack` 懒加载；正在生成的内容与已落库消息分离渲染，不整表刷新。
+- **性能**：流式期间按 50ms 节流刷新，避免每 token 触发 Markdown 重解析；消息列表用 `List`（底层 UICollectionView）获得离屏行复用，长会话内存有界；Markdown 解析结果按「消息 + 版本」缓存，复用重建不重复解析；对高频流式状态的观察隔离在零尺寸触发器视图中，刷新不整表重排。
 - **安全**：API Key 存系统钥匙串，不落 UserDefaults、不进代码。
 
 ## 目录结构

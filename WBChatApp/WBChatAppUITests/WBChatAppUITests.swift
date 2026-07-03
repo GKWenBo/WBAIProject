@@ -47,18 +47,24 @@ final class WBChatAppUITests: XCTestCase {
         input.typeText("hello")
         app.buttons["chat.send"].tap()
 
-        // 用户消息上屏后，等内容长出一屏以上（mock 全程约 6 秒）
-        let userMessage = app.staticTexts["hello"]
+        // 用户消息上屏后，等内容长出一屏以上（mock 全程约 6 秒）。
+        // 按无障碍标识符定位气泡：会话标题也是首条消息生成的 "hello"，
+        // 按文本全局查询会命中两个元素，取 frame 时直接报歧义错误
+        let userMessage = app.staticTexts["chat.message.user"].firstMatch
         XCTAssertTrue(userMessage.waitForExistence(timeout: 5))
         sleep(2)
 
-        // 流式进行中向上翻（手指下滑），等滚动与键盘收起落定
-        let list = app.scrollViews.firstMatch
-        list.swipeDown()
+        // 流式进行中向上翻（手指下滑）。用窗口坐标做手势，不经过元素解析：
+        // 流式期间无障碍树高频重建，按元素滑动会偶发解析失败；
+        // 且键盘弹出时 scrollViews.firstMatch 可能命中键盘内部的滚动视图而非消息列表。
+        // 起点取列表上部（避开导航头），终点越过键盘区，可顺带触发跟手收起键盘
+        let dragStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        let dragEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+        dragStart.press(forDuration: 0.05, thenDragTo: dragEnd)
         usleep(600_000)
 
         // 记录首条消息位置；流式仍在继续输出
-        XCTAssertTrue(userMessage.exists, "上翻后首条消息应可见")
+        XCTAssertTrue(userMessage.waitForExistence(timeout: 3), "上翻后首条消息应可见")
         let frameAfterSwipe = userMessage.frame
 
         // 等待期间 mock 仍在追加内容，若自动跟随未解除会被拉回底部
