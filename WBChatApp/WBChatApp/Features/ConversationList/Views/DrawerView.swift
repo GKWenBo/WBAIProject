@@ -13,6 +13,7 @@ struct DrawerView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(AppRouter.self) private var router
+    @Environment(\.isDrawerInteracting) private var isDrawerInteracting
     @Query(sort: \Conversation.updatedAt, order: .reverse)
     private var conversations: [Conversation]
 
@@ -108,6 +109,8 @@ struct DrawerView: View {
             .padding(.bottom, 12)
         }
         .scrollDismissesKeyboard(.immediately)
+        // 横向拖抽屉期间禁用列表滚动，与手势方向锁配合，保证只响应一个方向
+        .scrollDisabled(isDrawerInteracting)
     }
 
     private func conversationRow(_ conversation: Conversation) -> some View {

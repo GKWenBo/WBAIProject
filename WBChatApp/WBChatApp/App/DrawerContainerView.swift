@@ -19,8 +19,12 @@ struct DrawerContainerView<Drawer: View, Content: View>: View {
     /// 手势激活首帧的位移基准：DragGesture 有 24pt 启动阈值，
     /// 首帧 translation 已带上这段位移，扣除后拖动才能从 0 开始跟手不跳变
     @State private var dragBaseX: CGFloat?
-    /// 是否正在横向拖动抽屉。期间通过环境值让主内容里的滚动视图禁用滚动，避免手势冲突
-    @State private var isHorizontalDragging = false
+    /// 本次手势锁定的方向：首帧判定后保持到手势结束，横竖只响应其一。
+    /// 横向 → 拖抽屉并禁用列表滚动；纵向 → 交给列表滚动，抽屉全程不动
+    private enum DragAxis { case horizontal, vertical }
+    @State private var dragAxis: DragAxis?
+
+    private var isHorizontalDragging: Bool { dragAxis == .horizontal }
 
     private static var drawerWidthRatio: CGFloat { 0.82 }
     private static var maxCornerRadius: CGFloat { 40 }
@@ -43,6 +47,8 @@ struct DrawerContainerView<Drawer: View, Content: View>: View {
                 drawer()
                     .frame(width: drawerWidth)
                     .offset(x: (progress - 1) * 40)
+                    // 横向拖抽屉期间，同样禁用抽屉里会话列表的纵向滚动
+                    .environment(\.isDrawerInteracting, isHorizontalDragging)
 
                 content()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -75,18 +81,19 @@ struct DrawerContainerView<Drawer: View, Content: View>: View {
     private func dragGesture(drawerWidth: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 24, coordinateSpace: .local)
             .onChanged { value in
-                // 一旦确认横向占优，即锁定为抽屉拖动并保持到手势结束，
-                // 期间禁用列表滚动；纵向占优则视为普通滚动，不启动抽屉
-                guard isHorizontalDragging
-                    || abs(value.translation.width) > abs(value.translation.height)
-                else { return }
-                isHorizontalDragging = true
+                // 首帧按位移占优判定方向并锁定到手势结束：
+                // 判定为纵向后即使中途横向占优也不再接管，保证同一时刻只响应一个方向
+                if dragAxis == nil {
+                    dragAxis = abs(value.translation.width) > abs(value.translation.height)
+                        ? .horizontal : .vertical
+                }
+                guard dragAxis == .horizontal else { return }
                 let base = dragBaseX ?? value.translation.width
                 dragBaseX = base
                 dragTranslation = value.translation.width - base
             }
             .onEnded { value in
-                isHorizontalDragging = false
+                dragAxis = nil
                 guard let base = dragBaseX else { return }
                 dragBaseX = nil
                 let predicted = value.predictedEndTranslation.width - base
