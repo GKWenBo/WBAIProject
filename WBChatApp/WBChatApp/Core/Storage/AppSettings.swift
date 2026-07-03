@@ -18,9 +18,7 @@ final class AppSettings {
     }
 
     static let defaultBaseURL = "https://api.deepseek.com"
-    static let defaultChatModel = "deepseek-chat"
-    /// 深度思考使用的推理模型
-    static let reasonerModel = "deepseek-reasoner"
+    static let defaultChatModel = "deepseek-v4-flash"
 
     var apiKey: String {
         didSet { KeychainHelper.set(apiKey, forKey: Keys.apiKeyAccount) }
@@ -53,14 +51,14 @@ final class AppSettings {
     }
 
     /// 生成一次请求的配置；`deepThinking` 开启时切换到推理模型
-    func requestConfig(deepThinking: Bool) throws -> DeepSeekConfig {
+    func requestConfig(deepThinking: Bool = true) throws -> DeepSeekConfig {
         guard let url = URL(string: baseURLString), url.scheme != nil else {
             throw APIError.invalidURL
         }
         return DeepSeekConfig(
             baseURL: url,
             apiKey: apiKey,
-            model: deepThinking ? Self.reasonerModel : chatModel,
+            model: chatModel,
             temperature: temperature
         )
     }

@@ -12,7 +12,7 @@ final class MockChatClient: ChatStreaming {
         messages: [ChatMessagePayload],
         config: DeepSeekConfig
     ) -> AsyncThrowingStream<StreamChunk, Error> {
-        let isReasoner = config.model == AppSettings.reasonerModel
+        let isReasoner = true
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {

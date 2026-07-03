@@ -10,6 +10,8 @@ struct SettingsView: View {
 
     @Environment(AppSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
+    
+    private let models = ["deepseek-v4-flash", "deepseek-v4-pro"]
 
     var body: some View {
         @Bindable var settings = settings
@@ -23,7 +25,9 @@ struct SettingsView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     Picker("默认模型", selection: $settings.chatModel) {
-                        Text("deepseek-chat").tag("deepseek-chat")
+                        ForEach(models, id: \.self) { text in
+                            Text(text).tag(text)
+                        }
                     }
                 } header: {
                     Text("DeepSeek API")
