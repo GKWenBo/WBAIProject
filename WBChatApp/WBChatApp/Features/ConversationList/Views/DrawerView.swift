@@ -91,23 +91,31 @@ struct DrawerView: View {
     }
 
     private var conversationList: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 4, pinnedViews: []) {
-                ForEach(viewModel.sections(from: conversations)) { section in
-                    Text(section.title)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 16)
-                        .padding(.bottom, 4)
+        // List 底层是 UICollectionView，离屏行进入系统复用池回收重建，
+        // 会话数量多时内存不随浏览深度增长；此前的 ScrollView + LazyVStack
+        // 只有「按需懒创建」没有「离屏回收」（与消息列表同一选型，见 MessageListView）
+        List {
+            ForEach(viewModel.sections(from: conversations)) { section in
+                Text(section.title)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 4)
+                    .drawerRowStyle()
 
-                    ForEach(section.conversations) { conversation in
-                        conversationRow(conversation)
-                    }
+                ForEach(section.conversations) { conversation in
+                    conversationRow(conversation)
+                        .drawerRowStyle()
                 }
             }
-            .padding(.bottom, 12)
         }
+        .listStyle(.plain)
+        // 分组标题行远低于 List 默认行高下限（约 44pt），解除约束
+        .environment(\.defaultMinListRowHeight, 1)
+        // 隐藏 List 自带背景，露出抽屉的背景色
+        .scrollContentBackground(.hidden)
+        .contentMargins(.bottom, 12, for: .scrollContent)
         .scrollDismissesKeyboard(.immediately)
         // 横向拖抽屉期间禁用列表滚动，与手势方向锁配合，保证只响应一个方向
         .scrollDisabled(isDrawerInteracting)
@@ -168,7 +176,7 @@ struct DrawerView: View {
                 .fill(Color.accentColor.opacity(0.2))
                 .frame(width: 36, height: 36)
                 .overlay {
-                    Text("文")
+                    Text("W")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(Color.accentColor)
                 }
@@ -200,5 +208,18 @@ struct DrawerView: View {
             get: { deletingConversation != nil },
             set: { if !$0 { deletingConversation = nil } }
         )
+    }
+}
+
+// MARK: - List 行样式
+
+private extension View {
+    /// 抽屉列表行的统一样式：隐藏分隔线、透明行背景；
+    /// 上下各 2pt inset，复现原 LazyVStack 的 4pt 行距
+    func drawerRowStyle() -> some View {
+        self
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
+            .listRowBackground(Color.clear)
     }
 }
