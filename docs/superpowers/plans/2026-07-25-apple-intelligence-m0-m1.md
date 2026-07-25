@@ -38,8 +38,10 @@
   | Task 7 | `TranscriptTrimmer` ✅ 已处理 |
   | Task 8 | `Prompts` ✅ 已处理、`ChatOutcome` ✅ 已处理 |
   | Task 10 | `ServiceTicket`、`TicketCategory`、`TicketPriority`、`TicketOutcome` 及三个 extension |
-  | Task 12 | `MockEnterpriseBackend`（简报已写 `nonisolated`）、`InventoryQuery`、`OrderQuery` |
+  | Task 12 | `MockEnterpriseBackend`（简报已写 `nonisolated`）、`InventoryQuery`、`OrderQuery`、`InventoryLookupTool`、`OrderStatusTool` |
   | Task 13 | `ToolCallRecord`、`ToolCallOutcome` |
+
+  **关于 `Tool` 遵循类型：** 它们其实不加 `nonisolated` 也能编译 —— 按 SE-0466，`call(arguments:)` 作为 `@concurrent` 协议要求的见证，其隔离会被推断为与要求一致，从而覆盖模块的 MainActor 默认。这不是侥幸，是稳定语义。但本工程仍要求显式标注：同一文件里 `nonisolated struct InventoryQuery` 紧挨着不带标注的 `struct InventoryLookupTool`，会让读者以为两者隔离语义不同。示例工程的首要目标是可读，显式优于依赖读者了解见证推断规则。
 
   `@MainActor` 标注的服务类（`StreamingChatService`、`TicketExtractionService`、`ToolCallingService`）**不要**改成 `nonisolated` —— 它们持有 `LanguageModelSession` 并由 SwiftUI 驱动，主线程隔离是有意为之。
 - **正则字面量必须写成 `#/.../#`**。裸斜杠形式 `/.../` 在 Swift 5 语言模式下未启用，会报 `'/' is not a prefix unary operator`（已实测）。
