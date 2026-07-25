@@ -1771,6 +1771,7 @@ git commit -m "AIKit：流式对话服务，含指标采集与上下文超限自
 创建 `WBAppleIntelligence/Features/Chat/ChatViewModel.swift`：
 
 ```swift
+import Foundation
 import FoundationModels
 import Observation
 
