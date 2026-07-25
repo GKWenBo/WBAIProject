@@ -2317,7 +2317,9 @@ final class TicketExtractionViewModel {
     private(set) var error: AIKitError?
     private(set) var isExtracting = false
 
-    var input = Self.sampleInput
+    // 这里必须写全类型名而不是 Self：存储属性的初始化表达式里引用 Self 会报
+    // “covariant 'Self' type cannot be referenced from a stored property initializer”。
+    var input = TicketExtractionViewModel.sampleInput
 
     private let service = TicketExtractionService()
 
