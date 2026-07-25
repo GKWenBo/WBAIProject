@@ -5,11 +5,17 @@ import FoundationModels
 /// 把 `SystemLanguageModel.Availability` 翻译成可以直接呈现给用户的中文说明与操作建议。
 /// 单独建这层是因为：`UnavailableReason` 是非 frozen 枚举，系统升级可能新增 case，
 /// 集中在这里加 `@unknown default` 兜底，业务代码就不必到处处理未知情况。
-enum ModelAvailability: Equatable {
+///
+/// 显式 `nonisolated`：工程开启了 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`，
+/// 不加标注的类型会被隐式推断为 `@MainActor`，连同其协议一致性（如 `Equatable`）
+/// 一起被主线程隔离。AIKit 是不依赖 UI 的纯逻辑层，需要能在 actor、后台任务等
+/// 非隔离上下文里被直接使用，因此这里主动退出默认隔离；否则合成的 `Equatable`
+/// 在跨隔离域调用时会触发编译器警告，且在 Swift 6 语言模式下会变成编译错误。
+nonisolated enum ModelAvailability: Equatable {
     case available
     case unavailable(Reason)
 
-    enum Reason: Equatable, Hashable, CaseIterable {
+    nonisolated enum Reason: Equatable, Hashable, CaseIterable {
         /// 机型不满足要求，或设备区域 / 系统语言不在 Apple Intelligence 支持范围内。
         case deviceNotEligible
         /// 机型支持，但用户尚未在系统设置中开启 Apple Intelligence。
@@ -56,7 +62,9 @@ enum ModelAvailability: Equatable {
     }
 }
 
-extension ModelAvailability.Reason {
+// 扩展不会自动继承类型声明处的 nonisolated；每个扩展仍受工程默认隔离规则约束，
+// 所以这里也要显式标注，否则这些计算属性会被单独推断为 @MainActor。
+nonisolated extension ModelAvailability.Reason {
     var title: String {
         switch self {
         case .deviceNotEligible: "此设备不支持端侧模型"

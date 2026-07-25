@@ -6,7 +6,12 @@ import FoundationModels
 /// 存在的意义是把 `LanguageModelSession.GenerationError` 这类框架错误一次性翻译成
 /// 「用户看得懂的描述 + 能照做的建议」，避免每个 Demo 各写一遍 switch。
 /// `GenerationError` 是非 frozen 枚举，映射集中在这里也便于系统升级时统一兜底。
-enum AIKitError: LocalizedError, Equatable {
+///
+/// 显式 `nonisolated`：原因同 `ModelAvailability`——本类型会在非隔离上下文
+/// （如后台 actor、`Tool.call` 之类的 nonisolated 协议要求）里被直接构造与比较，
+/// 关联值又持有 `ModelAvailability.Reason`，若不退出默认的 `@MainActor` 隔离，
+/// 合成的 `Equatable` 会在跨隔离域使用时触发编译器警告（Swift 6 下为错误）。
+nonisolated enum AIKitError: LocalizedError, Equatable {
     case modelUnavailable(ModelAvailability.Reason)
     case contextWindowExceeded
     case guardrailViolation
@@ -101,7 +106,8 @@ enum AIKitError: LocalizedError, Equatable {
     }
 }
 
-extension AIKitError {
+// 扩展不会自动继承类型声明处的 nonisolated，需要单独标注。
+nonisolated extension AIKitError {
     /// 供测试遍历文案完整性使用。手写而非依赖 `CaseIterable`，
     /// 因为带关联值的 case 无法自动合成。
     static let allCasesForCopyCheck: [AIKitError] = [
