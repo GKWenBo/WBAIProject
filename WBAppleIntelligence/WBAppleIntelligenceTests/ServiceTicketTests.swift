@@ -41,5 +41,6 @@ struct ServiceTicketTests {
         #expect(ticket.priority == .medium)
         #expect(ticket.affectedPeople == 8)
         #expect(ticket.keywords == ["投影仪", "HDMI"])
+        #expect(ticket.summary == "三楼会议室的投影仪通过 HDMI 连接后没有信号。")
     }
 }
