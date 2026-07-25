@@ -2,7 +2,8 @@ import Foundation
 import FoundationModels
 
 /// 一次流式回答的结果。
-struct ChatOutcome: Equatable {
+/// 值类型消息，不受项目默认 MainActor 隔离约束，可跨隔离域边界传递，与 AIKit 其他值类型保持一致。
+nonisolated struct ChatOutcome: Equatable {
     let text: String
     let metrics: GenerationMetrics
     /// 本次回答是否触发过上下文裁剪。UI 需要据此提示用户「早期对话已被裁剪」。

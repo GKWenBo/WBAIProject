@@ -29,7 +29,19 @@
   nonisolated extension ModelAvailability.Reason { var title: String { ... } }
   ```
 
-  已按此模式处理的既有类型（提交 `91e6d6a`）：`ModelAvailability`、`ModelAvailability.Reason`、`AIKitError`、`GenerationMetrics`、`MetricsTimer` 及其全部 extension。后续新增的 `TranscriptTrimmer`、`Prompts`、`ServiceTicket`、`MockEnterpriseBackend` 等一并照此办理。
+  已按此模式处理的既有类型（提交 `91e6d6a`）：`ModelAvailability`、`ModelAvailability.Reason`、`AIKitError`、`GenerationMetrics`、`MetricsTimer` 及其全部 extension。
+
+  **这条规则优先于后文各任务代码块里的写法** —— 那些代码块是在本约束确立之前写的，凡与本条冲突处以本条为准。后续任务中必须补 `nonisolated` 的类型（各任务代码块中均未写）：
+
+  | 任务 | 类型 |
+  |---|---|
+  | Task 7 | `TranscriptTrimmer` ✅ 已处理 |
+  | Task 8 | `Prompts` ✅ 已处理、`ChatOutcome` ✅ 已处理 |
+  | Task 10 | `ServiceTicket`、`TicketCategory`、`TicketPriority`、`TicketOutcome` 及三个 extension |
+  | Task 12 | `MockEnterpriseBackend`（简报已写 `nonisolated`）、`InventoryQuery`、`OrderQuery` |
+  | Task 13 | `ToolCallRecord`、`ToolCallOutcome` |
+
+  `@MainActor` 标注的服务类（`StreamingChatService`、`TicketExtractionService`、`ToolCallingService`）**不要**改成 `nonisolated` —— 它们持有 `LanguageModelSession` 并由 SwiftUI 驱动，主线程隔离是有意为之。
 - **正则字面量必须写成 `#/.../#`**。裸斜杠形式 `/.../` 在 Swift 5 语言模式下未启用，会报 `'/' is not a prefix unary operator`（已实测）。
 - 源码文件一律放在 `WBAppleIntelligence/WBAppleIntelligence/` 下（`fileSystemSynchronizedGroups`，建文件即自动入 target，**不要手改 pbxproj 添加文件**）。
 - 文档放在 `WBAppleIntelligence/Docs/`，位于同步组之外，不会被打进 App bundle。
