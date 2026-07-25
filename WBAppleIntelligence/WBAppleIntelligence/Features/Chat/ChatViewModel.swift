@@ -54,11 +54,19 @@ final class ChatViewModel {
 
         input = ""
         error = nil
+        // 指标必须一起清掉：留着上一轮的数字，这一轮生成期间 MetricsBar 会一直显示旧值，
+        // 万一这一轮还失败了，旧指标就直接排在错误提示下面，读起来像是这次失败的耗时。
+        metrics = .empty
         didTrimContext = false
         isResponding = true
         messages.append(ChatMessage(role: .user, text: prompt))
 
         // 先插入一条空的助手消息，后续增量直接改这一条，界面上就是逐字出现的效果。
+        //
+        // 下面用 replyIndex 下标写入、失败时用 removeLast() 回退，都建立在同一条不变量上：
+        // 整个 await 期间不会有别的代码去动 messages。这条不变量目前是靠界面保证的
+        //（发送按钮与「新会话」按钮都绑了 .disabled(viewModel.isResponding)，reset() 进不来），
+        // 而不是靠本类型自己拦住——如果以后新增了不受该开关约束的入口，这里要一并复查。
         let replyIndex = messages.count
         messages.append(ChatMessage(role: .assistant, text: ""))
 
@@ -74,7 +82,9 @@ final class ChatViewModel {
             didTrimContext = outcome.didTrimContext
         } catch {
             self.error = AIKitError(error)
-            messages.removeLast()   // 移除那条没能填上内容的空回复
+            // 撤掉这一轮的助手回复。它不一定是空的——流在中途抛错时，前面收到的增量
+            // 已经写进去了；留着这半截内容比什么都不显示更糟，用户会以为那就是完整回答。
+            messages.removeLast()
         }
 
         isResponding = false

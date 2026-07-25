@@ -45,6 +45,9 @@ final class TicketExtractionViewModel {
         error = nil
         ticket = nil
         partial = nil
+        // 指标必须一起清掉：留着上一轮的数字，这一轮生成期间 MetricsBar 会一直显示旧值，
+        // 万一这一轮还失败了，旧指标就直接排在错误提示下面，读起来像是这次失败的耗时。
+        metrics = .empty
 
         do {
             let outcome = try await service.extract(from: text) { partial in
