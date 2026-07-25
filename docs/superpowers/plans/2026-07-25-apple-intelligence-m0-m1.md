@@ -18,6 +18,18 @@
 
 - Deployment target **iOS 26.5**；Xcode 26.5；`SWIFT_VERSION = 5.0`（Swift 5 语言模式）。
 - `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` 已开启。所有类型默认主线程隔离；需要脱离主线程的类型必须显式写 `nonisolated`。
+
+  **`AIKit/` 下的纯值类型一律显式标 `nonisolated`。** 这一层被 actor 与 nonisolated 上下文消费（`Tool.call` 是 nonisolated 的），不标就会报
+  `main actor-isolated conformance of 'X' to 'Equatable' cannot be used in nonisolated context; this is an error in the Swift 6 language mode`。
+
+  **关键细节（Task 5 实测踩到并已验证）：extension 不继承类型声明上的 `nonisolated`，必须逐个 extension 单独标。** 例如：
+
+  ```swift
+  nonisolated enum ModelAvailability: Equatable { ... }
+  nonisolated extension ModelAvailability.Reason { var title: String { ... } }
+  ```
+
+  已按此模式处理的既有类型（提交 `91e6d6a`）：`ModelAvailability`、`ModelAvailability.Reason`、`AIKitError`、`GenerationMetrics`、`MetricsTimer` 及其全部 extension。后续新增的 `TranscriptTrimmer`、`Prompts`、`ServiceTicket`、`MockEnterpriseBackend` 等一并照此办理。
 - **正则字面量必须写成 `#/.../#`**。裸斜杠形式 `/.../` 在 Swift 5 语言模式下未启用，会报 `'/' is not a prefix unary operator`（已实测）。
 - 源码文件一律放在 `WBAppleIntelligence/WBAppleIntelligence/` 下（`fileSystemSynchronizedGroups`，建文件即自动入 target，**不要手改 pbxproj 添加文件**）。
 - 文档放在 `WBAppleIntelligence/Docs/`，位于同步组之外，不会被打进 App bundle。
