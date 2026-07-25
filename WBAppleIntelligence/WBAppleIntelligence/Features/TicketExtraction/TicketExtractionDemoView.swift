@@ -1,4 +1,3 @@
-import FoundationModels
 import SwiftUI
 
 /// Demo 3：结构化工单抽取。
@@ -7,14 +6,9 @@ import SwiftUI
 /// 这就是 `PartiallyGenerated` 的价值：用户不用盯着转圈等，能看到进度。
 struct TicketExtractionDemoView: View {
     @State private var viewModel = TicketExtractionViewModel()
-    private let model = SystemLanguageModel.default
 
     var body: some View {
-        DemoScaffold(route: .ticketExtraction) {
-            let availability = ModelAvailability(model.availability)
-
-            AvailabilityBanner(availability: availability)
-
+        DemoScaffold(route: .ticketExtraction) { availability in
             Text("员工原话")
                 .font(.subheadline.weight(.semibold))
             TextField("描述遇到的问题", text: $viewModel.input, axis: .vertical)

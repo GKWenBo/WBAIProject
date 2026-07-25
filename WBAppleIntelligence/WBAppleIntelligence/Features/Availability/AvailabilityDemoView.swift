@@ -9,11 +9,9 @@ struct AvailabilityDemoView: View {
     private let model = SystemLanguageModel.default
 
     var body: some View {
-        DemoScaffold(route: .availability) {
-            let availability = ModelAvailability(model.availability)
-
-            AvailabilityBanner(availability: availability)
-
+        // 可用性横幅由 DemoScaffold 统一渲染，这一页只补充横幅之外的能力细节；
+        // 闭包参数用不上，这些细节读的是 model 上的其他属性。
+        DemoScaffold(route: .availability) { _ in
             section("模型能力") {
                 keyValue("上下文窗口", "\(model.contextSize) token")
                 keyValue("支持语言数", "\(model.supportedLanguages.count)")

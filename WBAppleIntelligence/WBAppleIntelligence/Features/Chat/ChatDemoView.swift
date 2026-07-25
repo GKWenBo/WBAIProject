@@ -1,4 +1,3 @@
-import FoundationModels
 import SwiftUI
 
 /// Demo 2：流式客服助手。
@@ -7,14 +6,9 @@ import SwiftUI
 /// 外层再套一层 ScrollView 会让列表高度塌陷。
 struct ChatDemoView: View {
     @State private var viewModel = ChatViewModel()
-    private let model = SystemLanguageModel.default
 
     var body: some View {
-        DemoScaffold(route: .streamingChat, isScrollable: false) {
-            let availability = ModelAvailability(model.availability)
-
-            AvailabilityBanner(availability: availability)
-
+        DemoScaffold(route: .streamingChat, isScrollable: false) { availability in
             messageList
 
             if viewModel.didTrimContext {

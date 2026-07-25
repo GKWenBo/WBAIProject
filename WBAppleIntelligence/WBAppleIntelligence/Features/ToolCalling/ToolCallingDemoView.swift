@@ -1,4 +1,3 @@
-import FoundationModels
 import SwiftUI
 
 /// Demo 4：工具调用接内部系统。
@@ -7,14 +6,9 @@ import SwiftUI
 /// 需要能回答「这个数字是模型编的还是真查出来的」。
 struct ToolCallingDemoView: View {
     @State private var viewModel = ToolCallingViewModel()
-    private let model = SystemLanguageModel.default
 
     var body: some View {
-        DemoScaffold(route: .toolCalling) {
-            let availability = ModelAvailability(model.availability)
-
-            AvailabilityBanner(availability: availability)
-
+        DemoScaffold(route: .toolCalling) { availability in
             Text("试试这些问题")
                 .font(.subheadline.weight(.semibold))
             ForEach(ToolCallingViewModel.samples, id: \.self) { sample in
