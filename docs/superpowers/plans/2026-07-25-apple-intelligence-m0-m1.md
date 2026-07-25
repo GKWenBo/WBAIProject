@@ -1293,8 +1293,8 @@ struct AvailabilityDemoView: View {
     }
 
     private var supportedLanguageList: String {
-        // maximalIdentifier 是非可选的 String，这里用 map 而不是 compactMap，
-        // 后者在闭包结果非可选时会触发编译器告警。
+        // maximalIdentifier 是非可选的 String，所以这里用 map 而不是 compactMap：
+        // compactMap 会让读者以为存在一步过滤，而实际上一个元素都不会被滤掉。
         let names = model.supportedLanguages
             .map(\.maximalIdentifier)
             .sorted()
