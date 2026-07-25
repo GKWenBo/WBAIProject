@@ -38,6 +38,8 @@
   ```
 
   预期输出 `0`。
+
+  **`clean` 不能省。** 增量构建不会重新编译未改动的模块，因此**跨文件的隔离类警告在增量构建下不会出现**。Task 5 实测踩到过：`main actor-isolated conformance of 'ModelAvailability.Reason' to 'Equatable' cannot be used in nonisolated context` 这条只在 `clean build` 下暴露，用增量 `build` 计数会得到假的 `0`。
 - Git commit message 用中文，**不加任何 AI 协作署名尾行**（`Co-Authored-By` 等一律不要）。
 - 所有命令都在 `/Users/wenbo/Desktop/WBAIProject/WBAppleIntelligence` 目录下执行。
 
