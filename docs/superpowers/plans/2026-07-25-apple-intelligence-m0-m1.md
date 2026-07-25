@@ -23,7 +23,21 @@
 - 文档放在 `WBAppleIntelligence/Docs/`，位于同步组之外，不会被打进 App bundle。
 - `AIKit/` 下的任何文件**禁止 `import SwiftUI`**。
 - 注释、UI 文案、文档一律中文。注释解释「为什么」，不复述代码。
-- 每个任务结束时必须 **0 error、0 warning**。
+- 每个任务结束时必须 **0 error，且 0 个 Swift 编译器 warning**。
+
+  唯一允许存在的例外是基线就有的一条工具链警告（已在 `2479c9c` 基线提交上实测确认，与本计划的任何改动无关）：
+
+  ```
+  appintentsmetadataprocessor: warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+  ```
+
+  它由 `appintentsmetadataprocessor` 对任何未链接 AppIntents.framework 的 app target 发出，等 Plan 3 引入 App Intents 后会自然消失。**不要为了消掉它而改工程配置**。核验警告数用：
+
+  ```bash
+  xcodebuild -project WBAppleIntelligence.xcodeproj -scheme WBAppleIntelligence -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' clean build 2>&1 | grep -E " warning: " | grep -v "No AppIntents.framework dependency found" | wc -l
+  ```
+
+  预期输出 `0`。
 - Git commit message 用中文，**不加任何 AI 协作署名尾行**（`Co-Authored-By` 等一律不要）。
 - 所有命令都在 `/Users/wenbo/Desktop/WBAIProject/WBAppleIntelligence` 目录下执行。
 
