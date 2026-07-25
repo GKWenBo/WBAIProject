@@ -26,7 +26,7 @@
 
   以上任意一环不满足，`availability` 都会是 `.unavailable`，具体原因与对应的用户引导见 [01-可用性探测与降级.md](01-可用性探测与降级.md)。
 
-- 本工程实测使用的构建与测试命令：
+- 本工程实测使用的构建与测试命令。**本文档里的所有命令都默认在 Xcode 工程根目录下执行**——即放着 `WBAppleIntelligence.xcodeproj` 的那一层，也就是本文件所在 `Docs/` 的上一级目录（注意它不是 Git 仓库根目录，仓库根还要再往上一级，见第 5 节）：
 
   ```
   xcodebuild -project WBAppleIntelligence.xcodeproj -scheme WBAppleIntelligence -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' clean build
@@ -100,22 +100,27 @@ printf 'import FoundationModels\nprint(SystemLanguageModel.default.availability)
 ## 5. 工程结构导读
 
 ```
-WBAppleIntelligence/WBAppleIntelligence/     内层源码组
-├── App/                        入口与导航：WBAppleIntelligenceApp、RootView、DemoRoute
-├── AIKit/                      框架封装与业务逻辑层，不 import SwiftUI
-│   ├── Core/                   ModelAvailability、AIKitError、GenerationMetrics、Prompts、TranscriptTrimmer
-│   ├── Chat/                   StreamingChatService
-│   ├── Extraction/             ServiceTicket、TicketExtractionService
-│   └── Tools/                  EnterpriseTools、MockEnterpriseBackend、ToolCallingService
-├── Features/                   各 Demo 的 SwiftUI 视图（三个驱动模型的 Demo 还各带一个视图模型）
-│   ├── Availability/            仅 AvailabilityDemoView，无视图模型
-│   ├── Chat/
-│   ├── TicketExtraction/
-│   └── ToolCalling/
-└── DesignSystem/                跨 Demo 复用的 UI 组件：AvailabilityBanner、MetricsBar、ErrorView、ScenarioCard、DemoScaffold
+WBAppleIntelligence/                     Xcode 工程根目录（本文档所有命令的执行位置）
+├── WBAppleIntelligence.xcodeproj
+├── Docs/                                本文档与四篇能力文档，不会被打进 App 包
+├── WBAppleIntelligenceTests/            六个单元测试套件
+├── WBAppleIntelligenceUITests/          首页 UI 冒烟测试
+└── WBAppleIntelligence/                 内层源码组
+    ├── App/                             入口与导航：WBAppleIntelligenceApp、RootView、DemoRoute
+    ├── AIKit/                           框架封装与业务逻辑层，不 import SwiftUI
+    │   ├── Core/                        ModelAvailability、AIKitError、GenerationMetrics、Prompts、TranscriptTrimmer
+    │   ├── Chat/                        StreamingChatService
+    │   ├── Extraction/                  ServiceTicket、TicketExtractionService
+    │   └── Tools/                       EnterpriseTools、MockEnterpriseBackend、ToolCallingService
+    ├── Features/                        各 Demo 的 SwiftUI 视图（三个驱动模型的 Demo 还各带一个视图模型）
+    │   ├── Availability/                仅 AvailabilityDemoView，无视图模型
+    │   ├── Chat/
+    │   ├── TicketExtraction/
+    │   └── ToolCalling/
+    └── DesignSystem/                    跨 Demo 复用的 UI 组件：AvailabilityBanner、MetricsBar、ErrorView、ScenarioCard、DemoScaffold
 ```
 
-上面这棵树的根是仓库里的内层源码组 `WBAppleIntelligence/WBAppleIntelligence/`；外层的 `WBAppleIntelligence/` 才是仓库根目录，`WBAppleIntelligenceTests/` 与这个内层源码组同级（都直接挂在仓库根下），测试文件与被测的 `AIKit` 类型一一对应（`ModelAvailabilityTests`、`AIKitErrorTests`、`GenerationMetricsTests`、`TranscriptTrimmerTests`、`ServiceTicketTests`、`MockEnterpriseBackendTests`）。`Docs/` 与 `WBAppleIntelligence.xcodeproj` 同样与内层源码组平级、在源码组之外，Markdown 文档不会被打进 App 包。
+这棵树的根 `WBAppleIntelligence/` 是 **Xcode 工程根目录**，不是 Git 仓库根目录——仓库根还要再往上一级（那一级里除了这个工程，还并列放着其他工程、`docs/`、`LICENSE` 等与本工程无关的内容）。区分这两层是有实际后果的：本文档里的 `xcodebuild` 与下面那条分层核验命令都写的是相对路径，只有在 Xcode 工程根目录下执行才能解析到正确的位置。工程根目录里同一层还有 `WBAppleIntelligence.xcodeproj` 与 `Docs/`，以及和内层源码组平级的两个测试目录：`WBAppleIntelligenceTests/` 里的文件与被测的 `AIKit` 类型一一对应（`ModelAvailabilityTests`、`AIKitErrorTests`、`GenerationMetricsTests`、`TranscriptTrimmerTests`、`ServiceTicketTests`、`MockEnterpriseBackendTests`），`WBAppleIntelligenceUITests/` 只保留一条首页冒烟测试。
 
 四层各自的职责：
 
@@ -126,7 +131,7 @@ WBAppleIntelligence/WBAppleIntelligence/     内层源码组
   ```
   这条命令在本工程当前代码上没有任何输出。
 - **`Features`**：每个 Demo 一个子目录。`Chat`、`TicketExtraction`、`ToolCalling` 这三个会驱动模型生成的 Demo，都是 `XxxDemoView`（SwiftUI 视图）+ `XxxViewModel`（`@Observable`，持有对应的 `AIKit` service）配对，负责把 `AIKit` 层的结果画成界面、处理用户交互。`Availability/` 是唯一的例外，目录里只有 `AvailabilityDemoView`，没有 `AvailabilityViewModel`——这个 Demo 只做可用性判断与降级引导，刻意不包含任何生成逻辑（详见 [01-可用性探测与降级.md](01-可用性探测与降级.md)），因此不需要 `@Observable` 视图模型去持有 `AIKit` service。
-- **`DesignSystem`**：跨 Demo 复用的展示组件——`AvailabilityBanner`（可用性横幅）、`MetricsBar`（首字延迟/总耗时/速率/输入输出 token 这五项指标的展示条）、`ErrorView`（统一的错误展示，同时呈现「发生了什么」与「该怎么办」）、`ScenarioCard`（每个 Demo 顶部的场景/价值说明卡片）、`DemoScaffold`（Demo 页面的统一骨架）。抽出这一层是为了让「一个 Demo 页面长什么样」不必在四个 Demo 里各写一遍。
+- **`DesignSystem`**：跨 Demo 复用的展示组件——`AvailabilityBanner`（可用性横幅）、`MetricsBar`（首字延迟/总耗时/速率/输入输出 token 这五项指标的展示条）、`ErrorView`（统一的错误展示，同时呈现「发生了什么」与「该怎么办」）、`ScenarioCard`（每个 Demo 顶部的场景/价值说明卡片）、`DemoScaffold`（Demo 页面的统一骨架：导航标题、是否可滚动、场景卡片，以及读取一次可用性并渲染 `AvailabilityBanner`，再把 `ModelAvailability` 交给内容闭包，供页面拿去控制按钮的启用状态）。抽出这一层是为了让「一个 Demo 页面长什么样」不必在四个 Demo 里各写一遍。
 
 ## 6. 文档索引
 
@@ -139,3 +144,4 @@ WBAppleIntelligence/WBAppleIntelligence/     内层源码组
 
 - **模拟器无法在本工程当前的开发环境下完成真实推理验证。** 不是因为模拟器本身不支持真实推理（第 3 节说过，它走的是宿主 Mac 的端侧模型），而是本工程的宿主 Mac 处于 `zh_CN` 区域、不满足 Apple Intelligence 的资格条件。在这样的环境里，模拟器只能验证「不可用」路径下的界面表现，无法验证真实生成结果——真机走查是目前唯一能验证真实推理效果、也是唯一能拿到真实性能数据的途径，[02-流式对话与会话管理.md](02-流式对话与会话管理.md)、[03-结构化生成.md](03-结构化生成.md)、[04-工具调用.md](04-工具调用.md) 三篇文档里合计五处「待真机实测」占位都是在等这一步（本文档不含性能数据，没有这类占位）。
 - **本工程目前只覆盖 `FoundationModels` 一个框架。** Apple 端侧 AI 能力矩阵里的 Vision（图像理解）、NaturalLanguage（文本分析）、Speech（语音识别）三个框架均未涉及，如果要覆盖更完整的端侧 AI 能力，这是待补的方向。
+- **构建产物的 Info.plist 里有四条当前用不到的权限说明。** 工程配置里声明了相机、麦克风、相册、语音识别四条 `INFOPLIST_KEY_NS*UsageDescription`，但本阶段的代码一行都没用到它们——这四条是为上一条提到的后续阶段（用 Vision 做单据识别、用 Speech 做语音转写）提前声明的，刻意保留下来，免得那些能力落地时再回头改一次工程配置。因为没有任何代码去访问这些设备能力，当前版本的 App 不会弹出其中任何一条权限请求；读到这份 Info.plist 时不必怀疑是哪里漏了实现。
