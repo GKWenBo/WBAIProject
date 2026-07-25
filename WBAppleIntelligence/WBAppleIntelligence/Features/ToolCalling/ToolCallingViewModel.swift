@@ -41,6 +41,7 @@ final class ToolCallingViewModel {
         error = nil
         answer = ""
         toolCalls = []
+        metrics = .empty
 
         do {
             let outcome = try await service.ask(question)

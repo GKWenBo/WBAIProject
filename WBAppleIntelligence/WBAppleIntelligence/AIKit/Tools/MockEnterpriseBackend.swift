@@ -6,7 +6,9 @@ import Foundation
 /// 好处是 Demo 完全离线可跑、单测可以直接断言具体数值。
 ///
 /// 显式标 `nonisolated`：工程开启了默认 MainActor 隔离，而 `Tool.call` 是
-/// nonisolated 的，若这里跟着默认走主线程隔离，工具实现里就访问不到 `shared`。
+/// nonisolated 的，若这里跟着默认走主线程隔离，工具实现里访问 `shared` 在
+/// 本工程实际使用的 Swift 5 语言模式下只会产生一条警告（Swift 6 模式下才是
+/// 编译错误）——真正兜底的是工程「clean build 零警告」的验收标准。
 nonisolated struct MockEnterpriseBackend: Sendable {
 
     struct StockRecord: Equatable, Sendable {
