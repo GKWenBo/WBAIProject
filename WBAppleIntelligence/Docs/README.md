@@ -76,7 +76,9 @@ printf 'import FoundationModels\nprint(SystemLanguageModel.default.availability)
 
 本文档不为任何具体的云端模型标注单价——公开定价会随时间和服务商调整，写死一个数字既不准确也很快过期，请读者用自己实际选用的云端模型报价去代入这个公式，得到符合自己业务规模的真实数字。
 
-唯一不需要真机测试、也不需要任何外部报价就能确定的一点是：上面公式里，单价、单次 token 数、调用频次无论取什么值，**端侧推理对应的这一项恒为零**——模型权重和推理算力都在设备本地，多推理一次不产生任何边际费用。调用频次越高（比如把这个功能铺给全体员工），云端方案的账单会随调用量线性增长，而端侧方案的成本曲线始终贴着零边际成本这条线——这是端侧方案在「规模化」这个维度上相比云端方案最结构性的优势，也是为什么工单抽取、客服问答这类高频、长尾的场景特别适合优先考虑端侧路径。
+唯一不需要真机测试、也不需要任何外部报价就能确定的一点是：上面公式里，单价、单次 token 数、调用频次无论取什么值，**端侧推理对应的按 token 计费这一项恒为零**——模型权重和推理算力都在设备本地，不存在按次结算的账单。调用频次越高（比如把这个功能铺给全体员工），云端方案的账单会随调用量线性增长，而端侧方案不会因为调用次数增加而多出一笔可计价的费用——这是端侧方案在「规模化」这个维度上相比云端方案最结构性的优势，也是为什么工单抽取、客服问答这类高频、长尾的场景特别适合优先考虑端侧路径。
+
+但这不等于端侧推理没有成本，只是成本换了个地方结算，且不是本文档能替读者标出具体数字的部分。每一次推理仍然要消耗设备电量、产生发热，这是真实存在的边际成本，只是不会体现在账单上（[02-流式对话与会话管理.md](02-流式对话与会话管理.md) 第 1 节的说法更准确：端侧模型的计算成本已经摊在硬件里）。更进一步，这份「摊在硬件里」的成本本身有一道门槛——本文档第 2 节写明的机型要求（iPhone 15 Pro 及以上）意味着企业要让员工用上端侧方案，前提是设备本身已经达标或愿意为此升级，这是一笔实实在在需要摊到设备采购与更新周期里的成本，只是不体现为每次调用的账单，而是体现为设备资产本身。
 
 ### 4.3 离线与延迟
 
@@ -98,22 +100,22 @@ printf 'import FoundationModels\nprint(SystemLanguageModel.default.availability)
 ## 5. 工程结构导读
 
 ```
-WBAppleIntelligence/
+WBAppleIntelligence/WBAppleIntelligence/     内层源码组
 ├── App/                        入口与导航：WBAppleIntelligenceApp、RootView、DemoRoute
 ├── AIKit/                      框架封装与业务逻辑层，不 import SwiftUI
 │   ├── Core/                   ModelAvailability、AIKitError、GenerationMetrics、Prompts、TranscriptTrimmer
 │   ├── Chat/                   StreamingChatService
 │   ├── Extraction/             ServiceTicket、TicketExtractionService
 │   └── Tools/                  EnterpriseTools、MockEnterpriseBackend、ToolCallingService
-├── Features/                   各 Demo 的 SwiftUI 视图与视图模型
-│   ├── Availability/
+├── Features/                   各 Demo 的 SwiftUI 视图（三个驱动模型的 Demo 还各带一个视图模型）
+│   ├── Availability/            仅 AvailabilityDemoView，无视图模型
 │   ├── Chat/
 │   ├── TicketExtraction/
 │   └── ToolCalling/
 └── DesignSystem/                跨 Demo 复用的 UI 组件：AvailabilityBanner、MetricsBar、ErrorView、ScenarioCard、DemoScaffold
 ```
 
-`WBAppleIntelligenceTests/` 与源码同级，测试文件与被测的 `AIKit` 类型一一对应（`ModelAvailabilityTests`、`AIKitErrorTests`、`GenerationMetricsTests`、`TranscriptTrimmerTests`、`ServiceTicketTests`、`MockEnterpriseBackendTests`）。`Docs/` 与 `WBAppleIntelligence.xcodeproj` 平级、在源码组之外，Markdown 文档不会被打进 App 包。
+上面这棵树的根是仓库里的内层源码组 `WBAppleIntelligence/WBAppleIntelligence/`；外层的 `WBAppleIntelligence/` 才是仓库根目录，`WBAppleIntelligenceTests/` 与这个内层源码组同级（都直接挂在仓库根下），测试文件与被测的 `AIKit` 类型一一对应（`ModelAvailabilityTests`、`AIKitErrorTests`、`GenerationMetricsTests`、`TranscriptTrimmerTests`、`ServiceTicketTests`、`MockEnterpriseBackendTests`）。`Docs/` 与 `WBAppleIntelligence.xcodeproj` 同样与内层源码组平级、在源码组之外，Markdown 文档不会被打进 App 包。
 
 四层各自的职责：
 
@@ -123,7 +125,7 @@ WBAppleIntelligence/
   grep -rn "^import SwiftUI" WBAppleIntelligence/AIKit/
   ```
   这条命令在本工程当前代码上没有任何输出。
-- **`Features`**：每个 Demo 一个子目录，`XxxDemoView`（SwiftUI 视图）+ `XxxViewModel`（`@Observable`，持有对应的 `AIKit` service）配对，负责把 `AIKit` 层的结果画成界面、处理用户交互。
+- **`Features`**：每个 Demo 一个子目录。`Chat`、`TicketExtraction`、`ToolCalling` 这三个会驱动模型生成的 Demo，都是 `XxxDemoView`（SwiftUI 视图）+ `XxxViewModel`（`@Observable`，持有对应的 `AIKit` service）配对，负责把 `AIKit` 层的结果画成界面、处理用户交互。`Availability/` 是唯一的例外，目录里只有 `AvailabilityDemoView`，没有 `AvailabilityViewModel`——这个 Demo 只做可用性判断与降级引导，刻意不包含任何生成逻辑（详见 [01-可用性探测与降级.md](01-可用性探测与降级.md)），因此不需要 `@Observable` 视图模型去持有 `AIKit` service。
 - **`DesignSystem`**：跨 Demo 复用的展示组件——`AvailabilityBanner`（可用性横幅）、`MetricsBar`（首字延迟/总耗时/速率/输入输出 token 这五项指标的展示条）、`ErrorView`（统一的错误展示，同时呈现「发生了什么」与「该怎么办」）、`ScenarioCard`（每个 Demo 顶部的场景/价值说明卡片）、`DemoScaffold`（Demo 页面的统一骨架）。抽出这一层是为了让「一个 Demo 页面长什么样」不必在四个 Demo 里各写一遍。
 
 ## 6. 文档索引
@@ -135,5 +137,5 @@ WBAppleIntelligence/
 
 ## 7. 已知限制
 
-- **模拟器无法在本工程当前的开发环境下完成真实推理验证。** 不是因为模拟器本身不支持真实推理（第 3 节说过，它走的是宿主 Mac 的端侧模型），而是本工程的宿主 Mac 处于 `zh_CN` 区域、不满足 Apple Intelligence 的资格条件。在这样的环境里，模拟器只能验证「不可用」路径下的界面表现，无法验证真实生成结果——真机走查是目前唯一能验证真实推理效果、也是唯一能拿到真实性能数据的途径，本文档与 02、03 两篇文档里的「待真机实测」占位都是在等这一步。
+- **模拟器无法在本工程当前的开发环境下完成真实推理验证。** 不是因为模拟器本身不支持真实推理（第 3 节说过，它走的是宿主 Mac 的端侧模型），而是本工程的宿主 Mac 处于 `zh_CN` 区域、不满足 Apple Intelligence 的资格条件。在这样的环境里，模拟器只能验证「不可用」路径下的界面表现，无法验证真实生成结果——真机走查是目前唯一能验证真实推理效果、也是唯一能拿到真实性能数据的途径，[02-流式对话与会话管理.md](02-流式对话与会话管理.md)、[03-结构化生成.md](03-结构化生成.md)、[04-工具调用.md](04-工具调用.md) 三篇文档里合计五处「待真机实测」占位都是在等这一步（本文档不含性能数据，没有这类占位）。
 - **本工程目前只覆盖 `FoundationModels` 一个框架。** Apple 端侧 AI 能力矩阵里的 Vision（图像理解）、NaturalLanguage（文本分析）、Speech（语音识别）三个框架均未涉及，如果要覆盖更完整的端侧 AI 能力，这是待补的方向。
