@@ -20,7 +20,10 @@ nonisolated struct OrderQuery: Equatable, Sendable {
 /// `Tool` 的 `name` 与 `includesSchemaInInstructions` 协议本身有默认实现，
 /// `parameters` 在 `Arguments` 遵循 `Generable` 时也会自动合成，所以这里只需要
 /// 提供 `description` 与 `call`。`description` 写得越具体，模型越不容易漏调工具。
-struct InventoryLookupTool: Tool {
+///
+/// 虽然 SE-0466 下 `@concurrent` 协议的见证会自动推断为 nonisolated，
+/// 但显式标注有助于保持文件中隔离策略的可读性。
+nonisolated struct InventoryLookupTool: Tool {
     typealias Arguments = InventoryQuery
     typealias Output = String
 
@@ -47,7 +50,7 @@ struct InventoryLookupTool: Tool {
 }
 
 /// 订单状态查询工具。
-struct OrderStatusTool: Tool {
+nonisolated struct OrderStatusTool: Tool {
     typealias Arguments = OrderQuery
     typealias Output = String
 
