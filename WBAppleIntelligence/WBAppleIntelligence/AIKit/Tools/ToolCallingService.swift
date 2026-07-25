@@ -2,13 +2,13 @@ import Foundation
 import FoundationModels
 
 /// 一次工具调用的记录，用于在界面上展示模型到底调了什么、拿到了什么。
-nonisolated struct ToolCallRecord: Identifiable, Equatable {
+nonisolated struct ToolCallRecord: Identifiable, Equatable, Sendable {
     let id: String
     let toolName: String
     let output: String
 }
 
-nonisolated struct ToolCallOutcome: Equatable {
+nonisolated struct ToolCallOutcome: Equatable, Sendable {
     let answer: String
     let toolCalls: [ToolCallRecord]
     let metrics: GenerationMetrics

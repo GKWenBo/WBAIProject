@@ -4,7 +4,7 @@ import FoundationModels
 /// 显式 `nonisolated`：与 AIKit 其他值类型约定一致，纯数据要能跨隔离域传递，
 /// 不应被工程默认的 `@MainActor` 隔离绑住（扩展不会继承类型声明处的 nonisolated，
 /// 这里没有扩展，直接标注在类型上即可）。
-nonisolated struct TicketOutcome: Equatable {
+nonisolated struct TicketOutcome: Equatable, Sendable {
     let ticket: ServiceTicket
     let metrics: GenerationMetrics
 }

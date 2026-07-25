@@ -11,11 +11,11 @@ import FoundationModels
 /// 一起被主线程隔离。AIKit 是不依赖 UI 的纯逻辑层，需要能在 actor、后台任务等
 /// 非隔离上下文里被直接使用，因此这里主动退出默认隔离；否则合成的 `Equatable`
 /// 在跨隔离域调用时会触发编译器警告，且在 Swift 6 语言模式下会变成编译错误。
-nonisolated enum ModelAvailability: Equatable {
+nonisolated enum ModelAvailability: Equatable, Sendable {
     case available
     case unavailable(Reason)
 
-    nonisolated enum Reason: Equatable, Hashable, CaseIterable {
+    nonisolated enum Reason: Equatable, Hashable, CaseIterable, Sendable {
         /// 机型不满足要求，或设备区域 / 系统语言不在 Apple Intelligence 支持范围内。
         case deviceNotEligible
         /// 机型支持，但用户尚未在系统设置中开启 Apple Intelligence。
@@ -44,21 +44,8 @@ nonisolated enum ModelAvailability: Equatable {
         }
     }
 
-    /// 读取系统当前状态。
-    ///
-    /// 在 SwiftUI 的 `body` 里应改为访问 `SystemLanguageModel.default.availability`——
-    /// 该类型遵循 `Observable`，这样用户在系统设置里开启 Apple Intelligence 后界面会自动刷新。
-    static var current: ModelAvailability {
-        ModelAvailability(SystemLanguageModel.default.availability)
-    }
-
     var isAvailable: Bool {
         self == .available
-    }
-
-    var reason: Reason? {
-        if case .unavailable(let reason) = self { return reason }
-        return nil
     }
 }
 

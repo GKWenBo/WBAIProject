@@ -50,7 +50,7 @@ nonisolated struct GenerationMetrics: Equatable, Sendable {
 ///
 /// 显式 `nonisolated`：采样发生在流式生成的回调链路上，调用方不一定在主线程，
 /// 同样要退出工程默认的 `@MainActor` 隔离。
-nonisolated struct MetricsTimer {
+nonisolated struct MetricsTimer: Sendable {
     private let start = ContinuousClock.now
     private var firstTokenAt: ContinuousClock.Instant?
 

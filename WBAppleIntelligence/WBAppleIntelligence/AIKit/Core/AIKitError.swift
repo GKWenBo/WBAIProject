@@ -11,7 +11,7 @@ import FoundationModels
 /// （如后台 actor、`Tool.call` 之类的 nonisolated 协议要求）里被直接构造与比较，
 /// 关联值又持有 `ModelAvailability.Reason`，若不退出默认的 `@MainActor` 隔离，
 /// 合成的 `Equatable` 会在跨隔离域使用时触发编译器警告（Swift 6 下为错误）。
-nonisolated enum AIKitError: LocalizedError, Equatable {
+nonisolated enum AIKitError: LocalizedError, Equatable, Sendable {
     case modelUnavailable(ModelAvailability.Reason)
     case contextWindowExceeded
     case guardrailViolation
