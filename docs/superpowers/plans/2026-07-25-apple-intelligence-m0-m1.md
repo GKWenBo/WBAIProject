@@ -39,7 +39,18 @@ xcodebuild -project WBAppleIntelligence.xcodeproj -scheme WBAppleIntelligence -d
 xcodebuild test -project WBAppleIntelligence.xcodeproj -scheme WBAppleIntelligence -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.5' -only-testing:WBAppleIntelligenceTests
 ```
 
-**运行环境提醒：** 本机区域为 `zh_CN`，`SystemLanguageModel.default.availability` 返回 `unavailable(.deviceNotEligible)`，且模拟器的 Foundation Models 走宿主 Mac 的模型。因此**模拟器上所有 LLM Demo 只能验证「不可用引导」路径**，真实推理需在 iPhone 15 Pro+ 真机（区域美国、已开启 Apple Intelligence 并下载完模型）上验证。任务中标注了哪些验收步骤属于真机项。
+**运行环境提醒：** 本机区域为 `zh_CN`，`SystemLanguageModel.default.availability` 返回 `unavailable(.deviceNotEligible)`，且模拟器的 Foundation Models 走宿主 Mac 的模型。因此**模拟器上所有 LLM Demo 只能验证「不可用引导」路径**，真实推理需在 iPhone 15 Pro+ 真机（区域美国、已开启 Apple Intelligence 并下载完模型）上验证。
+
+**关于真机步骤的统一约定（覆盖后文所有任务中的「真机验收」条目）：** 实现者手上没有真机，**不要尝试执行任何标注为「真机验收」的步骤，也不要因为无法执行而阻塞或报 BLOCKED**。这些步骤由项目负责人在全部任务完成后统一走查。实现者只需：
+
+1. 完成代码、单元测试与**模拟器**目视验收；
+2. 文档中凡是需要真机实测数字的位置（首字延迟、token 速率、schema token 数、预热前后对比等），写成醒目的占位块，格式统一为：
+   ```
+   > **待真机实测**：<说明要测什么、怎么测>
+   ```
+   不要编造、估算或从别处引用数字。
+
+Task 14 Step 5 是项目负责人执行的步骤，实现者跳过即可。
 
 ---
 
@@ -1990,12 +2001,6 @@ import Testing
 
 struct ServiceTicketTests {
 
-    @Test("工单类型的生成 schema 能正常构造")
-    func ticketSchemaBuilds() throws {
-        let schema = ServiceTicket.generationSchema
-        #expect(!schema.debugDescription.isEmpty)
-    }
-
     @Test("schema 中包含全部六个字段名")
     func schemaContainsAllFields() throws {
         let description = ServiceTicket.generationSchema.debugDescription
@@ -2228,7 +2233,7 @@ xcodebuild test -project WBAppleIntelligence.xcodeproj -scheme WBAppleIntelligen
 
 两个测试可能需要按实际输出微调，**但都不要删掉**——它们是 schema 与解码路径的唯一回归防线：
 
-- `schemaContainsAllFields` 失败：说明 `GenerationSchema.debugDescription` 的格式与预期不同。用 `print(ServiceTicket.generationSchema.debugDescription)` 打出实际内容后调整断言中的字段匹配方式。
+- `schemaContainsAllFields` 失败：说明 `GenerationSchema.debugDescription` 的格式与预期不同。用 `print(ServiceTicket.generationSchema.debugDescription)` 打出实际内容后调整断言中的字段匹配方式。若该属性根本不含字段名，改为断言 `GeneratedContent` 往返：构造一份完整 JSON、解码成 `ServiceTicket`、再取 `generatedContent.jsonString` 确认六个字段都在。
 - `decodesFromGeneratedContent` 失败：说明 `@Generable` 枚举在 `GeneratedContent` 里的编码形式不是 case 名字符串。用 `print(GeneratedContent(TicketCategory.hardware).jsonString)` 打出实际编码后，把测试 JSON 里 `category` 与 `priority` 的值改成实际形式。
 
 - [ ] **Step 6: 提交**
@@ -3080,9 +3085,15 @@ git commit -m "文档：端侧 AI 总览与价值分析，移除模板占位测�
 
 ## 完成标准
 
+**实现阶段（subagent 负责，全部完成后本计划即视为实现完毕）：**
+
 - [ ] `xcodebuild build` 零 error 零 warning
-- [ ] `xcodebuild test -only-testing:WBAppleIntelligenceTests` 全绿，六个测试套件齐全
+- [ ] `xcodebuild test -only-testing:WBAppleIntelligenceTests` 全绿，五个测试套件齐全（`ModelAvailabilityTests`、`AIKitErrorTests`、`GenerationMetricsTests`、`TranscriptTrimmerTests`、`ServiceTicketTests`、`MockEnterpriseBackendTests`）
 - [ ] 模拟器上四个 Demo 均可进入，不可用状态有明确中文引导，无崩溃无空白
-- [ ] 真机上四个 Demo 均能真实推理，Task 14 Step 5 的走查表全部确认
-- [ ] `Docs/` 下 5 篇文档齐全，02 与 03 的性能数据为真机实测值
+- [ ] `Docs/` 下 5 篇文档齐全，所有需要真机数据的位置均为统一格式的「待真机实测」占位，无编造数字
 - [ ] `AIKit/` 下无任何文件 `import SwiftUI`（核验：`grep -rl "import SwiftUI" WBAppleIntelligence/AIKit` 应无输出）
+
+**验收阶段（项目负责人在真机上执行）：**
+
+- [ ] 真机上四个 Demo 均能真实推理，Task 14 Step 5 的走查表全部确认
+- [ ] 把实测数字回填进 `Docs/02` 与 `Docs/03` 的「待真机实测」占位
