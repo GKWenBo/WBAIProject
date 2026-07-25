@@ -13,7 +13,9 @@ struct ChatMessage: Identifiable, Equatable {
 /// 流式客服助手的状态编排。
 ///
 /// 只做三件事：把用户输入交给 service、把流式增量写回消息、把错误与指标暴露给界面。
-/// 所有与 FoundationModels 打交道的逻辑都在 `StreamingChatService` 里，这里不出现任何模型 API。
+/// 会话生命周期、流式响应、transcript 管理与错误映射都在 `StreamingChatService` 里完成；
+/// 这里唯一接触到的模型相关类型是轻量的 `GenerationOptions` 值类型，不持有 `LanguageModelSession`
+/// 或 `Transcript` 这类更重的模型状态。
 @Observable
 final class ChatViewModel {
 
