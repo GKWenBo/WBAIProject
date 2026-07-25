@@ -397,6 +397,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "拍摄纸质单据并在设备本地完成识别，图像不会离开这台设备。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "录制会议音频并在设备本地转写，录音不会离开这台设备。";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "从相册选择单据图片进行本地识别，图片不会离开这台设备。";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "在设备本地把语音转成文字，音频不会上传到服务器。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -428,6 +432,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "拍摄纸质单据并在设备本地完成识别，图像不会离开这台设备。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "录制会议音频并在设备本地转写，录音不会离开这台设备。";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "从相册选择单据图片进行本地识别，图片不会离开这台设备。";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "在设备本地把语音转成文字，音频不会上传到服务器。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
