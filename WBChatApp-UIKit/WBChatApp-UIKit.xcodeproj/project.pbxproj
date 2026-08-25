@@ -6,8 +6,32 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		C22351F5303D38C500C0DD23 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = C22351F4303D38C500C0DD23 /* Markdown */; };
+		C22351F8303D392200C0DD23 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = C22351F7303D392200C0DD23 /* GRDB */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C2235219303D3B3D00C0DD23 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C22351C3303C916400C0DD23 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C22351CA303C916400C0DD23;
+			remoteInfo = "WBChatApp-UIKit";
+		};
+		C2235228303D3BC000C0DD23 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C22351C3303C916400C0DD23 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C22351CA303C916400C0DD23;
+			remoteInfo = "WBChatApp-UIKit";
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		C22351CB303C916400C0DD23 /* WBChatApp-UIKit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "WBChatApp-UIKit.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C2235215303D3B3D00C0DD23 /* WBChatApp-UIKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "WBChatApp-UIKitTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C2235222303D3BC000C0DD23 /* WBChatApp-UIKitUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "WBChatApp-UIKitUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -29,10 +53,36 @@
 			path = "WBChatApp-UIKit";
 			sourceTree = "<group>";
 		};
+		C2235216303D3B3D00C0DD23 /* WBChatApp-UIKitTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "WBChatApp-UIKitTests";
+			sourceTree = "<group>";
+		};
+		C2235223303D3BC000C0DD23 /* WBChatApp-UIKitUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "WBChatApp-UIKitUITests";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		C22351C8303C916400C0DD23 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C22351F5303D38C500C0DD23 /* Markdown in Frameworks */,
+				C22351F8303D392200C0DD23 /* GRDB in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C2235212303D3B3D00C0DD23 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C223521F303D3BC000C0DD23 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -46,6 +96,8 @@
 			isa = PBXGroup;
 			children = (
 				C22351CD303C916400C0DD23 /* WBChatApp-UIKit */,
+				C2235216303D3B3D00C0DD23 /* WBChatApp-UIKitTests */,
+				C2235223303D3BC000C0DD23 /* WBChatApp-UIKitUITests */,
 				C22351CC303C916400C0DD23 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,6 +106,8 @@
 			isa = PBXGroup;
 			children = (
 				C22351CB303C916400C0DD23 /* WBChatApp-UIKit.app */,
+				C2235215303D3B3D00C0DD23 /* WBChatApp-UIKitTests.xctest */,
+				C2235222303D3BC000C0DD23 /* WBChatApp-UIKitUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -78,10 +132,58 @@
 			);
 			name = "WBChatApp-UIKit";
 			packageProductDependencies = (
+				C22351F4303D38C500C0DD23 /* Markdown */,
+				C22351F7303D392200C0DD23 /* GRDB */,
 			);
 			productName = "WBChatApp-UIKit";
 			productReference = C22351CB303C916400C0DD23 /* WBChatApp-UIKit.app */;
 			productType = "com.apple.product-type.application";
+		};
+		C2235214303D3B3D00C0DD23 /* WBChatApp-UIKitTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C223521D303D3B3D00C0DD23 /* Build configuration list for PBXNativeTarget "WBChatApp-UIKitTests" */;
+			buildPhases = (
+				C2235211303D3B3D00C0DD23 /* Sources */,
+				C2235212303D3B3D00C0DD23 /* Frameworks */,
+				C2235213303D3B3D00C0DD23 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C223521A303D3B3D00C0DD23 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C2235216303D3B3D00C0DD23 /* WBChatApp-UIKitTests */,
+			);
+			name = "WBChatApp-UIKitTests";
+			packageProductDependencies = (
+			);
+			productName = "WBChatApp-UIKitTests";
+			productReference = C2235215303D3B3D00C0DD23 /* WBChatApp-UIKitTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		C2235221303D3BC000C0DD23 /* WBChatApp-UIKitUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C223522A303D3BC000C0DD23 /* Build configuration list for PBXNativeTarget "WBChatApp-UIKitUITests" */;
+			buildPhases = (
+				C223521E303D3BC000C0DD23 /* Sources */,
+				C223521F303D3BC000C0DD23 /* Frameworks */,
+				C2235220303D3BC000C0DD23 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C2235229303D3BC000C0DD23 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C2235223303D3BC000C0DD23 /* WBChatApp-UIKitUITests */,
+			);
+			name = "WBChatApp-UIKitUITests";
+			packageProductDependencies = (
+			);
+			productName = "WBChatApp-UIKitUITests";
+			productReference = C2235222303D3BC000C0DD23 /* WBChatApp-UIKitUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
 
@@ -96,6 +198,14 @@
 					C22351CA303C916400C0DD23 = {
 						CreatedOnToolsVersion = 26.5;
 					};
+					C2235214303D3B3D00C0DD23 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = C22351CA303C916400C0DD23;
+					};
+					C2235221303D3BC000C0DD23 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = C22351CA303C916400C0DD23;
+					};
 				};
 			};
 			buildConfigurationList = C22351C6303C916400C0DD23 /* Build configuration list for PBXProject "WBChatApp-UIKit" */;
@@ -107,18 +217,38 @@
 			);
 			mainGroup = C22351C2303C916400C0DD23;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				C22351F3303D38C500C0DD23 /* XCRemoteSwiftPackageReference "swift-markdown" */,
+				C22351F6303D392200C0DD23 /* XCRemoteSwiftPackageReference "GRDB" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C22351CC303C916400C0DD23 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				C22351CA303C916400C0DD23 /* WBChatApp-UIKit */,
+				C2235214303D3B3D00C0DD23 /* WBChatApp-UIKitTests */,
+				C2235221303D3BC000C0DD23 /* WBChatApp-UIKitUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		C22351C9303C916400C0DD23 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C2235213303D3B3D00C0DD23 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C2235220303D3BC000C0DD23 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -135,7 +265,34 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C2235211303D3B3D00C0DD23 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C223521E303D3BC000C0DD23 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C223521A303D3B3D00C0DD23 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C22351CA303C916400C0DD23 /* WBChatApp-UIKit */;
+			targetProxy = C2235219303D3B3D00C0DD23 /* PBXContainerItemProxy */;
+		};
+		C2235229303D3BC000C0DD23 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C22351CA303C916400C0DD23 /* WBChatApp-UIKit */;
+			targetProxy = C2235228303D3BC000C0DD23 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		C22351DF303C916500C0DD23 /* Debug */ = {
@@ -147,11 +304,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "WBChatApp-UIKit/Info.plist";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "需要使用麦克风把你的语音转成文字输入";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "需要语音识别把你的话实时转成文字";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -161,7 +320,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
@@ -178,11 +337,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "WBChatApp-UIKit/Info.plist";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "需要使用麦克风把你的语音转成文字输入";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "需要语音识别把你的话实时转成文字";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
-				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -192,7 +353,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
@@ -252,7 +413,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -309,13 +470,95 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		C223521B303D3B3D00C0DD23 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.wb.WBChatApp-UIKitTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WBChatApp-UIKit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WBChatApp-UIKit";
+			};
+			name = Debug;
+		};
+		C223521C303D3B3D00C0DD23 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.wb.WBChatApp-UIKitTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WBChatApp-UIKit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WBChatApp-UIKit";
+			};
+			name = Release;
+		};
+		C223522B303D3BC000C0DD23 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.wb.WBChatApp-UIKitUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "WBChatApp-UIKit";
+			};
+			name = Debug;
+		};
+		C223522C303D3BC000C0DD23 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.wb.WBChatApp-UIKitUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "WBChatApp-UIKit";
 			};
 			name = Release;
 		};
@@ -340,7 +583,57 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		C223521D303D3B3D00C0DD23 /* Build configuration list for PBXNativeTarget "WBChatApp-UIKitTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C223521B303D3B3D00C0DD23 /* Debug */,
+				C223521C303D3B3D00C0DD23 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C223522A303D3BC000C0DD23 /* Build configuration list for PBXNativeTarget "WBChatApp-UIKitUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C223522B303D3BC000C0DD23 /* Debug */,
+				C223522C303D3BC000C0DD23 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C22351F3303D38C500C0DD23 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/swiftlang/swift-markdown";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.8.0;
+			};
+		};
+		C22351F6303D392200C0DD23 /* XCRemoteSwiftPackageReference "GRDB" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.9.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C22351F4303D38C500C0DD23 /* Markdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C22351F3303D38C500C0DD23 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
+		};
+		C22351F7303D392200C0DD23 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C22351F6303D392200C0DD23 /* XCRemoteSwiftPackageReference "GRDB" */;
+			productName = GRDB;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = C22351C3303C916400C0DD23 /* Project object */;
 }
