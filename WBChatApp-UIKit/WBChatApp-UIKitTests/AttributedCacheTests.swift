@@ -97,6 +97,23 @@ struct AttributedCacheTests {
         #expect(measureCount == 2)
     }
 
+    @Test("宽度存在浮点误差时仍命中同一缓存条目")
+    func widthWithFloatingPointNoiseHitsSameEntry() {
+        let cache = AttributedCache()
+        var measureCount = 0
+        let block = sealed("内容")
+        let render: (MarkdownBlock) -> NSAttributedString = { NSAttributedString(string: $0.rawText) }
+        let measure: (NSAttributedString) -> CGFloat = { _ in
+            measureCount += 1
+            return 44
+        }
+        // 用 nextUp 而非 .ulpOfOne：320.0 的 ulp（约 5.68e-14）远大于 .ulpOfOne
+        // （1.0 的 ulp，约 2.22e-16），后者加上去会被舍入吞掉，根本测不出扰动。
+        _ = cache.height(for: block, width: 320.0, render: render, measure: measure)
+        _ = cache.height(for: block, width: 320.0.nextUp, render: render, measure: measure)
+        #expect(measureCount == 1)
+    }
+
     @Test("未闭合块的高度每次重测")
     func openBlockHeightNotCached() {
         let cache = AttributedCache()
