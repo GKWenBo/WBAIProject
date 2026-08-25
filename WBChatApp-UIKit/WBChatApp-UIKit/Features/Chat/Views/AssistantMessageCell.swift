@@ -9,7 +9,6 @@ final class AssistantMessageCell: UITableViewCell {
     private static let verticalInset: CGFloat = 10
 
     private var stackView: BlockStackView?
-    private var pool: BlockViewPool?
 
     private let reasoningView: ReasoningSectionView = {
         let view = ReasoningSectionView()
@@ -42,6 +41,10 @@ final class AssistantMessageCell: UITableViewCell {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("不支持 Storyboard") }
 
+    /// - Note: `pool` / `cache` / `renderer` 只在 cell 首次创建内部的 `BlockStackView`
+    ///   时生效；cell 被复用（第二次及以后调用本方法）时会沿用首次捕获的那几个实例，
+    ///   本次传入的参数会被静默忽略。调用方应始终传同一份实例（当前所有调用方也确实
+    ///   只用同一份单例），否则容易造成「以为换了池/缓存/渲染器实际上没换」的误解。
     func configure(blocks: [MarkdownBlock],
                    reasoning: String?,
                    status: MessageStatus,
@@ -49,8 +52,6 @@ final class AssistantMessageCell: UITableViewCell {
                    pool: BlockViewPool,
                    cache: AttributedCache,
                    renderer: AttributedRenderer) {
-        self.pool = pool
-
         let stack: BlockStackView
         if let existing = stackView {
             stack = existing
@@ -122,6 +123,9 @@ final class AssistantMessageCell: UITableViewCell {
                                       width: contentWidth, height: height)
         }
     }
+
+    /// 供测试断言补丁确实转发到了容器（`BlockStackView.blockCount` 本身已是公开的）
+    var blockCountForTesting: Int { stackView?.blockCount ?? 0 }
 
     override func prepareForReuse() {
         super.prepareForReuse()

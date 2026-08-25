@@ -88,15 +88,26 @@ struct BlockStackViewTests {
 
     @Test("总高度等于各块高度与间距之和")
     func heightIsSumOfBlocks() {
+        // 两块刻意用不等长的文本：若实现漏加 spacing，或者用「块数 * 单块高度」
+        // 之类的近似算法，等长文本测不出来，这里用「总高 = 各块单独高度之和 +
+        // 间距 × (块数 - 1)」的精确等式来校验。
+        let longText = "这是一段更长一些的文字，用来确保两个块的单独高度不同，从而使求和断言更有区分度。"
+
         let stack = makeStack()
-        stack.setBlocks([sealed(0, "甲"), sealed(1, "乙")])
+        stack.setBlocks([sealed(0, "甲"), sealed(1, longText)])
         let total = stack.heightThatFits(width: 300)
 
-        let single = makeStack()
-        single.setBlocks([sealed(0, "甲")])
-        let one = single.heightThatFits(width: 300)
+        let first = makeStack()
+        first.setBlocks([sealed(0, "甲")])
+        let firstHeight = first.heightThatFits(width: 300)
 
-        #expect(total > one)
+        let second = makeStack()
+        second.setBlocks([sealed(1, longText)])
+        let secondHeight = second.heightThatFits(width: 300)
+
+        let spacing = MarkdownTheme.default.blockSpacing
+        #expect(total == firstHeight + secondHeight + spacing,
+                "总高度应精确等于两块各自高度之和加一份间距")
     }
 
     @Test("recycleAll 清空所有子视图")
@@ -117,8 +128,17 @@ struct BlockStackViewTests {
                        pool: BlockViewPool(),
                        cache: AttributedCache(),
                        renderer: AttributedRenderer())
+        #expect(cell.blockCountForTesting == 1)
+        let heightBefore = cell.heightThatFits(width: 375)
+
+        // 断言的核心不是「高度 > 0」（configure 一个块之后本来就恒为正），而是
+        // applyPatch 确实把补丁转发给了容器：块数应该增加，高度也应该随之变大。
+        // 若 applyPatch 被改成空实现，这两个断言都会失败。
         cell.applyPatch(BlockPatch(newlySealed: [sealed(1, "补充")], open: nil))
-        #expect(cell.heightThatFits(width: 375) > 0)
+
+        #expect(cell.blockCountForTesting == 2, "补丁应转发到容器，新增一个已闭合块")
+        let heightAfter = cell.heightThatFits(width: 375)
+        #expect(heightAfter > heightBefore, "新增块后高度应变大")
     }
 
     @Test("用户 cell 展示原始文本，不做 Markdown 渲染")

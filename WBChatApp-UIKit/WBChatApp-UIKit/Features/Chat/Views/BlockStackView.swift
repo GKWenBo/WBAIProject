@@ -80,9 +80,23 @@ final class BlockStackView: UIView {
                 blockViews.removeLast()
                 blocks.removeLast()
                 hasOpenBlock = false
+            } else if let first = sealedQueue.first, first.ordinal != blocks[blocks.count - 1].ordinal {
+                // 契约外输入：本帧确实有「新闭合块」，但它的 ordinal 对不上上一帧的
+                // 未闭合块，且本帧还带着新的开放块——既不是「它被闭合了」（ordinal
+                // 应该相等），也不是「它被撤回」（patch.open 应该为 nil）。真实的
+                // `StreamingBlockSplitter` 驱动下这个组合不可达：`openBlock.ordinal`
+                // 恒等于 `nextOrdinal`，下一次 `seal()` 必然用这个 ordinal 闭合同一个
+                // `current`。一旦这个契约被打破（例如未来「重新生成」把切块器错误地
+                // 部分重置），继续往下走会把 sealedQueue 追加到旧的未闭合视图后面，
+                // 再用 patch.open 覆盖那个「本应是已闭合」的块，静默破坏「已闭合块只
+                // 增不改」的不变量。这里用 assertionFailure 快速失败：Debug 直接崩，
+                // Release 下 assertionFailure 是空操作，行为退化为「维持上一帧未闭合
+                // 块不变、后续按原逻辑继续」，不新增风险。
+                assertionFailure("BlockStackView.applyPatch：sealedQueue.first 的 ordinal 与上一帧未闭合块不匹配，这是契约外输入")
             }
-            // 两个分支都不满足：说明上一帧的未闭合块仍未闭合，且本帧还有新的
-            // 开放内容——留给下面 `patch.open` 分支的 `updateView` 原地更新。
+            // 若 sealedQueue.first 为 nil 且 patch.open 非 nil：上一帧的未闭合块仍未
+            // 闭合，本帧只是继续追加内容——留给下面 patch.open 分支的 updateView
+            // 原地更新，这是最常见的流式续写路径。
         }
 
         for block in sealedQueue {
