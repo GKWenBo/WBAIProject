@@ -54,11 +54,20 @@ xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -dest
 > 用中文显示名会匹配到 **0 个用例**，而 `xcodebuild` 依然打印 `** TEST SUCCEEDED **`——
 > 这是一条会让整个任务假绿的陷阱，已实测确认。
 >
-> **每次跑完测试都要数一下实际执行的用例数**，不要只看 `TEST SUCCEEDED`：
+> **每次跑完测试都要核对实际执行的用例数**，不要只看 `TEST SUCCEEDED`。
+>
+> ⚠️ **不要用 `grep "Test case ... passed"` 计数——xcodebuild 的文本日志在高输出量下会静默丢行。**
+> 本项目实测中它连续三次少计 1 条（`keychainRoundTrip` 明明跑了且通过，日志里一行都没有）。
+> 用这种方法计数，真有用例没跑时会淹没在噪声里看不出来。
+>
+> **权威记录是 xcresult bundle**，用它核对：
 > ```bash
-> xcodebuild test ... 2>&1 | grep -cE "Test case '.*' passed"
+> RESULT=$(ls -dt ~/Library/Developer/Xcode/DerivedData/WBChatApp-UIKit-*/Logs/Test/*.xcresult | head -1)
+> xcrun xcresulttool get test-results summary --path "$RESULT" \
+>   | python3 -c "import sys,json; d=json.load(sys.stdin); print('total:',d['totalTestCount'],'passed:',d['passedTests'],'failed:',d['failedTests'],'skipped:',d['skippedTests'])"
 > ```
-> 并行执行会克隆模拟器，所以这个数通常是用例数的整数倍。为 0 就说明选择器没匹配上。
+> 注意 `ls -dt` 取的是**最近一次**运行；如果中间又跑过别的测试，用 `sed -n '2p'` 之类取对应那次。
+> `skipped` 不为 0 要查清原因。
 
 **前置条件：** SPM 依赖首次解析需要网络。开工前先确认下面这条能成功，否则一切任务都会卡在编译：
 
