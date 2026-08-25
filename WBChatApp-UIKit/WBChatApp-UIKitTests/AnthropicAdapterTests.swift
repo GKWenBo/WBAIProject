@@ -72,6 +72,28 @@ struct AnthropicAdapterTests {
         #expect(try chunks([("ping", "{}")]).isEmpty)
     }
 
+    @Test("message_start 遇到畸形 JSON 时应显式抛出解码错误，而不是静默把 inputTokens 归零")
+    func messageStartMalformedJSONThrows() {
+        var mapper = AnthropicChunkMapper()
+        let malformed = "{不是合法JSON"
+        #expect {
+            _ = try mapper.map(SSEEvent(event: "message_start", data: malformed, id: nil, retry: nil))
+        } throws: { error in
+            (error as? ChatError) == ChatError.decoding(malformed)
+        }
+    }
+
+    @Test("message_delta 遇到畸形 JSON 时应显式抛出解码错误，而不是吐出基于陈旧值拼出的幽灵用量事件")
+    func messageDeltaMalformedJSONThrows() {
+        var mapper = AnthropicChunkMapper()
+        let malformed = "{不是合法JSON"
+        #expect {
+            _ = try mapper.map(SSEEvent(event: "message_delta", data: malformed, id: nil, retry: nil))
+        } throws: { error in
+            (error as? ChatError) == ChatError.decoding(malformed)
+        }
+    }
+
     @Test("完整流：思考块 + 正文块 + 用量 + 结束")
     func fullStream() throws {
         let result = try chunks([

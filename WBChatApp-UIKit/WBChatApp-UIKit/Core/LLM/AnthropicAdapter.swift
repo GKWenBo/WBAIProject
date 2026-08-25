@@ -41,8 +41,11 @@ struct AnthropicChunkMapper: SSEChunkMapper {
 
         switch event.event {
         case "message_start":
-            let payload = try? decoder.decode(AnthropicDTO.MessageStart.self, from: data)
-            inputTokens = payload?.message?.usage?.input_tokens ?? 0
+            // JSON 本身解析失败要显式抛错；JSON 合法但 usage 字段缺失是正常情况，走默认值 0。
+            guard let payload = try? decoder.decode(AnthropicDTO.MessageStart.self, from: data) else {
+                throw ChatError.decoding(event.data)
+            }
+            inputTokens = payload.message?.usage?.input_tokens ?? 0
             return []
 
         case "content_block_delta":
@@ -63,9 +66,13 @@ struct AnthropicChunkMapper: SSEChunkMapper {
             }
 
         case "message_delta":
-            let payload = try? decoder.decode(AnthropicDTO.MessageDelta.self, from: data)
-            if let reason = payload?.delta?.stop_reason { stopReason = reason }
-            outputTokens = payload?.usage?.output_tokens ?? outputTokens
+            // JSON 本身解析失败要显式抛错，避免吐出基于陈旧值拼出的幽灵用量事件；
+            // JSON 合法但 delta/usage 字段缺失是正常情况，沿用旧值。
+            guard let payload = try? decoder.decode(AnthropicDTO.MessageDelta.self, from: data) else {
+                throw ChatError.decoding(event.data)
+            }
+            if let reason = payload.delta?.stop_reason { stopReason = reason }
+            outputTokens = payload.usage?.output_tokens ?? outputTokens
             return [.usage(TokenUsage(prompt: inputTokens, completion: outputTokens))]
 
         case "message_stop":
