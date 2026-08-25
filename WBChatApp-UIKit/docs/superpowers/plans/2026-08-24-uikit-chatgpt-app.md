@@ -1353,8 +1353,13 @@ struct AnthropicChunkMapper: SSEChunkMapper {
 
         switch event.event {
         case "message_start":
-            let payload = try? decoder.decode(AnthropicDTO.MessageStart.self, from: data)
-            inputTokens = payload?.message?.usage?.input_tokens ?? 0
+            // 解码失败必须抛错。用 try? 静默吞掉会让 inputTokens 悄悄降级为 0，
+            // 后续每一帧 usage 的 prompt 都是错的，且调用方无从察觉。
+            // 注意区分：JSON 合法但 usage 字段缺失是正常情况，仍走默认值 0。
+            guard let payload = try? decoder.decode(AnthropicDTO.MessageStart.self, from: data) else {
+                throw ChatError.decoding(event.data)
+            }
+            inputTokens = payload.message?.usage?.input_tokens ?? 0
             return []
 
         case "content_block_delta":
@@ -1375,9 +1380,13 @@ struct AnthropicChunkMapper: SSEChunkMapper {
             }
 
         case "message_delta":
-            let payload = try? decoder.decode(AnthropicDTO.MessageDelta.self, from: data)
-            if let reason = payload?.delta?.stop_reason { stopReason = reason }
-            outputTokens = payload?.usage?.output_tokens ?? outputTokens
+            // 同上：解码失败若被吞掉，这里会无条件吐出一帧基于陈旧状态拼出的
+            // 「幽灵」用量事件，调用方分不清它是真实用量还是解码失败的产物。
+            guard let payload = try? decoder.decode(AnthropicDTO.MessageDelta.self, from: data) else {
+                throw ChatError.decoding(event.data)
+            }
+            if let reason = payload.delta?.stop_reason { stopReason = reason }
+            outputTokens = payload.usage?.output_tokens ?? outputTokens
             return [.usage(TokenUsage(prompt: inputTokens, completion: outputTokens))]
 
         case "message_stop":
