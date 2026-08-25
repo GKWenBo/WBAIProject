@@ -24,12 +24,7 @@ final class BlockViewPool {
     }
 
     func recycle(_ view: any BlockView) {
-        let kind: BlockViewKind
-        switch view {
-        case is CodeBlockView:    kind = .code
-        case is DividerBlockView: kind = .divider
-        default:                  kind = .text
-        }
+        let kind = type(of: view).viewKind
         view.prepareForReuse()
         view.removeFromSuperview()
 

@@ -3,6 +3,8 @@ import UIKit
 /// 分割线。高度固定，与宽度无关。
 final class DividerBlockView: UIView, BlockView {
 
+    static let viewKind: BlockViewKind = .divider
+
     private static let totalHeight: CGFloat = 17
     private static let lineHeight: CGFloat = 1
 

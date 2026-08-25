@@ -3,6 +3,8 @@ import UIKit
 /// 代码块：顶部一条「语言 + 复制」工具条，下面是横向可滚动的等宽文本。
 final class CodeBlockView: UIView, BlockView {
 
+    static let viewKind: BlockViewKind = .code
+
     var onCopy: ((String) -> Void)?
 
     private static let headerHeight: CGFloat = 32
@@ -61,6 +63,13 @@ final class CodeBlockView: UIView, BlockView {
 
     /// 供测试断言
     var languageText: String { languageLabel.text ?? "" }
+
+    /// 供测试断言/设置：读取当前剥掉围栏的代码，或直接写入滚动位置以模拟横向滚动
+    var codeForTesting: String { code }
+    var contentOffsetForTesting: CGPoint {
+        get { scrollView.contentOffset }
+        set { scrollView.contentOffset = newValue }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
