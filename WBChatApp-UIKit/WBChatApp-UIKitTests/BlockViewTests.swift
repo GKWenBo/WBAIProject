@@ -195,6 +195,24 @@ struct BlockViewTests {
         #expect(tapped == nil)
     }
 
+    @Test("链接为块尾内容时点击最后一个字符右半侧仍触发 onLinkTap")
+    func linkAtEndOfDocumentRightEdgeTriggersCallback() {
+        let view = MarkdownTextBlockView()
+        configure(view, block(.paragraph, "详见[文档](https://example.com)"))
+        view.frame = CGRect(x: 0, y: 0, width: 300, height: max(1, view.heightThatFits(width: 300)))
+        view.layoutIfNeeded()
+
+        // 取最后一个字符矩形的右半侧：closestPosition(to:) 在此处会返回
+        // endOfDocument（离文末最近），验证的正是这种边界情况。
+        let rect = view.lastCharacterRectForTesting()
+        let point = CGPoint(x: rect.maxX - 1, y: rect.midY)
+
+        var tapped: URL?
+        view.onLinkTap = { tapped = $0 }
+        view.simulateTapForTesting(at: point)
+        #expect(tapped == URL(string: "https://example.com"))
+    }
+
     // MARK: - Important 3：prepareForReuse 需要更强的判别力
 
     @Test("prepareForReuse 复位引用块的竖条、缩进与点击回调")

@@ -119,19 +119,26 @@ final class MarkdownTextBlockView: UIView, BlockView {
 
         // 取「最近位置」往后一个字符的范围；若已在文末（往后取不到字符），
         // 退而取往前一个字符的范围。两者都取不到（空文档）就没有可命中的字符。
+        // 字符索引必须和矩形校验用的是同一个字符起点：forward 分支里矩形对应
+        // 字符的起点就是 position 本身；backward 分支里矩形对应字符的起点是
+        // position 往前一位（position 自身可能已经是 endOfDocument，取不到索引）。
         let range: UITextRange?
+        let rangeStart: UITextPosition
         if let forward = textView.position(from: position, offset: 1) {
             range = textView.textRange(from: position, to: forward)
+            rangeStart = position
         } else if let backward = textView.position(from: position, offset: -1) {
             range = textView.textRange(from: backward, to: position)
+            rangeStart = backward
         } else {
             range = nil
+            rangeStart = position
         }
         guard let range else { return }
         let rect = textView.firstRect(for: range)
         guard !rect.isNull, rect.contains(point) else { return }
 
-        let index = textView.offset(from: textView.beginningOfDocument, to: position)
+        let index = textView.offset(from: textView.beginningOfDocument, to: rangeStart)
         guard index >= 0, index < (textView.attributedText?.length ?? 0) else { return }
         guard let url = textView.attributedText?
             .attribute(.wbLinkURL, at: index, effectiveRange: nil) as? URL else { return }
@@ -141,5 +148,12 @@ final class MarkdownTextBlockView: UIView, BlockView {
     /// 供测试模拟点击：`UITapGestureRecognizer` 在单测里不便直接触发
     func simulateTapForTesting(at point: CGPoint) {
         handleTap(at: point)
+    }
+
+    /// 供测试构造点击坐标：最后一个字符的实际矩形
+    func lastCharacterRectForTesting() -> CGRect {
+        guard let end = textView.position(from: textView.endOfDocument, offset: -1) else { return .null }
+        guard let range = textView.textRange(from: end, to: textView.endOfDocument) else { return .null }
+        return textView.firstRect(for: range)
     }
 }
