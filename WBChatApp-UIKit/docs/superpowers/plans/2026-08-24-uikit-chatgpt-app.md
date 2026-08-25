@@ -2008,7 +2008,11 @@ struct StreamingBlockSplitterTests {
         _ = splitter.append("a\r")
         _ = splitter.append("\nb\r\n")
         _ = splitter.finish()
-        #expect(splitter.allBlocks.map(\.rawText) == ["a", "b"])
+        // 期望是合并成一块而非两块：正确识别出 CRLF 时行序列是 a、b，
+        // 多行段落合并为 "a\nb"；若误把 \r 当行结束、\n 再当空行，
+        // 空行会封存段落得到 ["a", "b"]。写成 ["a", "b"] 会让两种情况都通过，
+        // 这条测试就失去判别力了。
+        #expect(splitter.allBlocks.map(\.rawText) == ["a\nb"])
     }
 
     @Test("finish 把最后的 open 块闭合")
@@ -2117,6 +2121,12 @@ struct BlockPatch: Equatable, Sendable {
     static let empty = BlockPatch(newlySealed: [], open: nil)
 }
 ```
+
+> **实现时的三个已知陷阱**（Task 7 实测踩到，下面的参考代码已规避，但改动时注意别改回去）：
+>
+> 1. **`nextLineTerminator()` 必须按 `unicodeScalars` 查找换行，不能按 `Character`。** Swift 的字位簇规则会把相邻的 `\r\n` 合并成**一个** `Character`，按 `Character` 比较 `$0 == "\n" || $0 == "\r"` 永远匹配不到，切块直接失效。
+> 2. **`finish()` 要处理流结束时挂起的孤立末尾 `\r`**，否则它会作为普通字符残留进最后一块的内容里。
+> 3. **列表分支要检查有序/无序标记是否切换**：`- a` 后面紧跟 `1. x` 属于两个不同的列表，不能合并成一块。
 
 - [ ] **Step 4: 实现切块状态机**
 
