@@ -31,8 +31,10 @@ final class AutoScrollController {
     /// 拖动起点，用来判断方向
     private var dragStartOffsetY: CGFloat = 0
 
-    /// 程序化滚动期间忽略一切 didScroll
-    private var isProgrammaticScroll = false
+    /// 程序化滚动期间忽略一切 didScroll。用整数深度计数而非布尔量，
+    /// 是为了避免嵌套/重叠的两次程序化滚动中，第一次 endProgrammaticScroll()
+    /// 就提前解除了保护（外层滚动动画其实还没结束）。
+    private var programmaticScrollDepth = 0
 
     init(bottomThreshold: CGFloat = 40) {
         self.bottomThreshold = bottomThreshold
@@ -42,11 +44,14 @@ final class AutoScrollController {
 
     func willBeginDragging(offsetY: CGFloat) {
         dragStartOffsetY = offsetY
+        // 手指按下是用户接管的明确信号：任何未完成的程序化滚动都应该让位，
+        // 否则「点击回到底部」动画期间用户抓住屏幕会被误吞掉手势。
+        programmaticScrollDepth = 0
     }
 
     func didScroll(offsetY: CGFloat, isTracking: Bool) {
         // 自己发起的滚动不能被当成用户意图
-        guard !isProgrammaticScroll else { return }
+        guard programmaticScrollDepth == 0 else { return }
         // 手指不在屏幕上时（惯性、contentSize 变化）不改变状态
         guard isTracking else { return }
         // 只有向上拖才脱离；向下拖是在追内容，不该打断贴底
@@ -78,11 +83,13 @@ final class AutoScrollController {
     // MARK: - 程序化滚动标记
 
     func beginProgrammaticScroll() {
-        isProgrammaticScroll = true
+        programmaticScrollDepth += 1
     }
 
     func endProgrammaticScroll() {
-        isProgrammaticScroll = false
+        // 防止多余的 end 调用把计数减成负数，导致之后配平的 begin/end 反而误判为仍在保护中
+        guard programmaticScrollDepth > 0 else { return }
+        programmaticScrollDepth -= 1
     }
 
     // MARK: - 私有

@@ -120,4 +120,79 @@ struct AutoScrollControllerTests {
         controller.didEndDragging(willDecelerate: false, distanceToBottom: 80)
         #expect(controller.mode == .pinned)
     }
+
+    @Test("distanceToBottom 恰好等于阈值也算贴底（锁死 <= 而非 < 的语义）")
+    func thresholdBoundaryExactlyAtLimitRepins() {
+        let controller = AutoScrollController(bottomThreshold: 100)
+        dragUp(controller)
+        controller.didEndDragging(willDecelerate: false, distanceToBottom: 100)
+        #expect(controller.mode == .pinned)
+    }
+
+    @Test("已经贴底时点击回到底部按钮不应重复回调")
+    func tapButtonWhenAlreadyPinnedDoesNotFireCallback() {
+        let controller = AutoScrollController()
+        var changes: [AutoScrollController.Mode] = []
+        controller.onModeChange = { changes.append($0) }
+        controller.didTapScrollToBottom()
+        #expect(changes.isEmpty)
+    }
+
+    @Test("已经贴底时发送消息不应重复回调")
+    func sendMessageWhenAlreadyPinnedDoesNotFireCallback() {
+        let controller = AutoScrollController()
+        var changes: [AutoScrollController.Mode] = []
+        controller.onModeChange = { changes.append($0) }
+        controller.didSendMessage()
+        #expect(changes.isEmpty)
+    }
+
+    // MARK: - 程序化滚动与真实手势的交叉场景
+
+    @Test("程序化滚动进行中用户按下手指开始真实拖动，willBeginDragging 应立即解除程序化保护让用户接管")
+    func realDragDuringProgrammaticScrollDetaches() {
+        let controller = AutoScrollController()
+        // 「点击回到底部」发起的带动画程序化滚动仍在进行中
+        controller.beginProgrammaticScroll()
+        // 用户此时抓住屏幕，走完整的手势流程
+        controller.willBeginDragging(offsetY: 1000)
+        controller.didScroll(offsetY: 900, isTracking: true)
+        #expect(controller.mode == .detached, "手指按下应无条件解除程序化滚动保护，用户接管应该成功")
+    }
+
+    @Test("程序化滚动进行中出现 isTracking: true 但未经过 willBeginDragging，防御性场景下保护仍应生效")
+    func programmaticScrollGuardBlocksTrackingScrollWithoutGestureStart() {
+        let controller = AutoScrollController()
+        // 上一次手势遗留的起点，比新的 offsetY 更靠下——方向判定本身会认为这是「向上拖」
+        controller.willBeginDragging(offsetY: 1000)
+        // 程序化滚动开始（比如点击回到底部按钮的动画），但期间没有再走 willBeginDragging
+        controller.beginProgrammaticScroll()
+        // 直接出现一个 isTracking: true 的滚动信号（防御性场景，didScroll 顺序被打乱等）
+        controller.didScroll(offsetY: 500, isTracking: true)
+        #expect(controller.mode == .pinned, "没有经过手指按下信号确认接管前，程序化滚动保护应继续拦截")
+    }
+
+    @Test("嵌套/重叠的两次程序化滚动，第一次 end 不应提前解除保护")
+    func nestedProgrammaticScrollsDoNotEndEarly() {
+        let controller = AutoScrollController()
+        controller.willBeginDragging(offsetY: 1000)
+        controller.beginProgrammaticScroll() // 外层程序化滚动开始
+        controller.beginProgrammaticScroll() // 内层（重叠的）程序化滚动开始
+        controller.endProgrammaticScroll()   // 内层结束，外层仍未结束
+        controller.didScroll(offsetY: 500, isTracking: true)
+        #expect(controller.mode == .pinned, "外层程序化滚动还没结束，保护不应解除")
+        controller.endProgrammaticScroll()   // 外层结束，保护才应完全解除
+    }
+
+    @Test("endProgrammaticScroll 在计数已为 0 时不应减成负数")
+    func endProgrammaticScrollNeverGoesNegative() {
+        let controller = AutoScrollController()
+        controller.endProgrammaticScroll() // 多余的一次 end，此时计数本就是 0
+        controller.beginProgrammaticScroll()
+        controller.endProgrammaticScroll()
+        // 若计数被减成负数，之后配平的一对 begin/end 会让深度停留在 -1，
+        // 导致 didScroll 的守卫误判为「仍在程序化滚动中」
+        dragUp(controller)
+        #expect(controller.mode == .detached)
+    }
 }
