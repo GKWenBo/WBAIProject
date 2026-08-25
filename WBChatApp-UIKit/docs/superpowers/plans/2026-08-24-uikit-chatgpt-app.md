@@ -34,8 +34,18 @@ xcodebuild build -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -des
 ```
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/<套件名>'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/<测试类型名>'
 ```
+
+> ⚠️ **`-only-testing` 必须用 Swift 类型名（如 `SSEEventParserTests`），不能用 `@Suite` 的中文显示名。**
+> 用中文显示名会匹配到 **0 个用例**，而 `xcodebuild` 依然打印 `** TEST SUCCEEDED **`——
+> 这是一条会让整个任务假绿的陷阱，已实测确认。
+>
+> **每次跑完测试都要数一下实际执行的用例数**，不要只看 `TEST SUCCEEDED`：
+> ```bash
+> xcodebuild test ... 2>&1 | grep -cE "Test case '.*' passed"
+> ```
+> 并行执行会克隆模拟器，所以这个数通常是用例数的整数倍。为 0 就说明选择器没匹配上。
 
 **前置条件：** SPM 依赖首次解析需要网络。开工前先确认下面这条能成功，否则一切任务都会卡在编译：
 
@@ -229,7 +239,7 @@ struct SmokeTests {
 - [ ] **Step 5: 运行测试确认全绿**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/工程骨架冒烟'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/SmokeTests'
 ```
 
 Expected: 4 个用例全部 PASS，`TEST SUCCEEDED`。
@@ -371,7 +381,7 @@ struct SSEEventParserTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/SSE 事件解析'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/SSEEventParserTests'
 ```
 
 Expected: 编译失败，`cannot find 'SSEEventParser' in scope`。
@@ -437,11 +447,17 @@ final class SSEEventParser {
     func finish() -> [SSEEvent] {
         var events: [SSEEvent] = []
         if !byteBuffer.isEmpty {
-            let line = String(decoding: byteBuffer, as: UTF8.self)
-            byteBuffer.removeAll()
-            if let event = handle(line: line) {
-                events.append(event)
+            // consume 里遇到落在末尾的 \r 会挂起等下一个字节判断是 CR 还是 CRLF，
+            // 但流已经结束、那个字节永远不会来，这里必须把它剥掉，
+            // 否则会被当成字段值的一部分（data 变成 "a\r"、event 匹配失败、retry 解析成 nil）
+            if byteBuffer.last == 0x0D { byteBuffer.removeLast() }
+            if !byteBuffer.isEmpty {
+                let line = String(decoding: byteBuffer, as: UTF8.self)
+                if let event = handle(line: line) {
+                    events.append(event)
+                }
             }
+            byteBuffer.removeAll()
         }
         if let event = dispatch() {
             events.append(event)
@@ -523,7 +539,7 @@ final class SSEEventParser {
 - [ ] **Step 5: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/SSE 事件解析'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/SSEEventParserTests'
 ```
 
 Expected: 13 个用例全部 PASS。
@@ -880,7 +896,7 @@ struct OpenAIAdapterTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/OpenAI 兼容协议适配'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/OpenAIAdapterTests'
 ```
 
 Expected: 编译失败，`cannot find 'OpenAIChunkMapper' in scope`。
@@ -1050,7 +1066,7 @@ struct OpenAIChunkMapper: SSEChunkMapper {
 - [ ] **Step 6: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/OpenAI 兼容协议适配'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/OpenAIAdapterTests'
 ```
 
 Expected: 10 个用例全部 PASS。
@@ -1209,7 +1225,7 @@ struct AnthropicAdapterTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/Anthropic 协议适配'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/AnthropicAdapterTests'
 ```
 
 Expected: 编译失败，`cannot find 'AnthropicChunkMapper' in scope`。
@@ -1369,7 +1385,7 @@ struct AnthropicChunkMapper: SSEChunkMapper {
 - [ ] **Step 5: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/Anthropic 协议适配'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/AnthropicAdapterTests'
 ```
 
 Expected: 9 个用例全部 PASS。
@@ -1551,7 +1567,7 @@ struct NetworkChatProviderTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/网络传输层'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/NetworkChatProviderTests'
 ```
 
 Expected: 编译失败，`cannot find 'NetworkChatProvider' in scope`。
@@ -1758,7 +1774,7 @@ final class MockProvider: ChatProvider {
 - [ ] **Step 6: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/网络传输层'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/NetworkChatProviderTests'
 ```
 
 Expected: 6 个用例全部 PASS。
@@ -2017,7 +2033,7 @@ struct StreamingBlockSplitterTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/增量切块状态机'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/StreamingBlockSplitterTests'
 ```
 
 Expected: 编译失败，`cannot find 'StreamingBlockSplitter' in scope`。
@@ -2376,7 +2392,7 @@ struct StreamingBlockSplitter {
 - [ ] **Step 5: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/增量切块状态机'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/StreamingBlockSplitterTests'
 ```
 
 Expected: 20 个用例全部 PASS。**「核心不变量：已闭合块序列只增不改」这条必须通过，它不过就说明整个增量渲染方案不成立，不要跳过或放宽断言。**
@@ -2494,7 +2510,7 @@ struct CodeHighlighterTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/代码高亮'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/CodeHighlighterTests'
 ```
 
 Expected: 编译失败，`cannot find 'CodeHighlighter' in scope`。
@@ -2703,7 +2719,7 @@ struct CodeHighlighter: Sendable {
 - [ ] **Step 5: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/代码高亮'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/CodeHighlighterTests'
 ```
 
 Expected: 11 个用例全部 PASS。
@@ -2860,7 +2876,7 @@ struct AttributedRendererTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/属性串渲染'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/AttributedRendererTests'
 ```
 
 Expected: 编译失败，`cannot find 'AttributedRenderer' in scope`。
@@ -3104,7 +3120,7 @@ final class AttributedRenderer {
 - [ ] **Step 4: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/属性串渲染'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/AttributedRendererTests'
 ```
 
 Expected: 13 个用例全部 PASS。
@@ -3274,7 +3290,7 @@ struct AttributedCacheTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/渲染缓存'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/AttributedCacheTests'
 ```
 
 Expected: 编译失败，`cannot find 'AttributedCache' in scope`。
@@ -3349,7 +3365,7 @@ final class AttributedCache {
 - [ ] **Step 4: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/渲染缓存'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/AttributedCacheTests'
 ```
 
 Expected: 9 个用例全部 PASS。
@@ -3525,7 +3541,7 @@ struct ChatRepositoryTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/持久化'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/ChatRepositoryTests'
 ```
 
 Expected: 编译失败，`cannot find 'AppDatabase' in scope`。
@@ -3837,7 +3853,7 @@ enum KeychainStore {
 - [ ] **Step 7: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/持久化'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/ChatRepositoryTests'
 ```
 
 Expected: 9 个用例全部 PASS。
@@ -4016,7 +4032,7 @@ struct AutoScrollControllerTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/自动贴底状态机'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/AutoScrollControllerTests'
 ```
 
 Expected: 编译失败，`cannot find 'AutoScrollController' in scope`。
@@ -4126,7 +4142,7 @@ final class AutoScrollController {
 - [ ] **Step 4: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/自动贴底状态机'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/AutoScrollControllerTests'
 ```
 
 Expected: 13 个用例全部 PASS。
@@ -4290,7 +4306,7 @@ struct BlockViewTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/块视图'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/BlockViewTests'
 ```
 
 Expected: 编译失败，`cannot find 'MarkdownTextBlockView' in scope`。
@@ -4702,7 +4718,7 @@ final class BlockViewPool {
 - [ ] **Step 7: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/块视图'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/BlockViewTests'
 ```
 
 Expected: 12 个用例全部 PASS。「文本块块视图始终使用 TextKit 2」这条是 TextKit 2 降级的哨兵测试，失败说明某处碰了 `layoutManager`。
@@ -4878,7 +4894,7 @@ struct BlockStackViewTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/块容器'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/BlockStackViewTests'
 ```
 
 Expected: 编译失败，`cannot find 'BlockStackView' in scope`。
@@ -5393,7 +5409,7 @@ final class ReasoningSectionView: UIView {
 - [ ] **Step 6: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/块容器'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/BlockStackViewTests'
 ```
 
 Expected: 12 个用例全部 PASS。**「已闭合块的视图实例在后续补丁中保持不变」这条是增量渲染的验收线**，失败说明 `applyPatch` 在做全量重建。
@@ -5724,7 +5740,7 @@ struct ChatViewModelTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/聊天 ViewModel'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/ChatViewModelTests'
 ```
 
 Expected: 编译失败，`cannot find 'ChatViewModel' in scope`。
@@ -6109,7 +6125,7 @@ final class ChatViewModel {
 - [ ] **Step 5: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/聊天 ViewModel'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/ChatViewModelTests'
 ```
 
 Expected: 13 个用例全部 PASS。
@@ -7011,7 +7027,7 @@ struct ConversationListViewModelTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/会话列表 ViewModel'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/ConversationListViewModelTests'
 ```
 
 Expected: 编译失败，`cannot find 'ConversationListViewModel' in scope`。
@@ -7431,7 +7447,7 @@ extension AppContainer {
 - [ ] **Step 6: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/会话列表 ViewModel'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/ConversationListViewModelTests'
 ```
 
 Expected: 5 个用例全部 PASS。
@@ -7567,7 +7583,7 @@ struct SettingsViewModelTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/设置 ViewModel'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/SettingsViewModelTests'
 ```
 
 Expected: 编译失败，`cannot find 'SettingsViewModel' in scope`。
@@ -7814,7 +7830,7 @@ extension AppContainer {
 - [ ] **Step 4: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/设置 ViewModel'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/SettingsViewModelTests'
 ```
 
 Expected: 9 个用例全部 PASS。
@@ -7941,7 +7957,7 @@ struct SpeechTranscriberTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/语音转写'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/SpeechTranscriberTests'
 ```
 
 Expected: 编译失败，`cannot find 'SpeechTranscribing' in scope`。
@@ -8320,7 +8336,7 @@ final class RecordingOverlayView: UIView {
 - [ ] **Step 6: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/语音转写'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/SpeechTranscriberTests'
 ```
 
 Expected: 6 个用例全部 PASS。
@@ -8448,7 +8464,7 @@ struct MessageActionTests {
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/消息操作'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/MessageActionTests'
 ```
 
 Expected: 「retryLast 清空旧的块」失败——`startStream` 重置了 splitter 但 `blocksByMessage` 的清空发生在 `retryLast` 里，需确认顺序正确。其余用例应通过。
@@ -8552,7 +8568,7 @@ Expected: 「retryLast 清空旧的块」失败——`startStream` 重置了 spl
 - [ ] **Step 6: 运行测试确认通过**
 
 ```bash
-xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/消息操作'
+xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' -only-testing:'WBChatApp-UIKitTests/MessageActionTests'
 ```
 
 Expected: 4 个用例全部 PASS。
