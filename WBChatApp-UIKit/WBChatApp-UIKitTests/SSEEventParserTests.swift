@@ -99,4 +99,37 @@ struct SSEEventParserTests {
     func blankLinesProduceNothing() {
         #expect(parse(["\n\n\n"]).isEmpty)
     }
+
+    @Test("finish 冲刷时，落在缓冲区末尾的孤立 CR 不应烙进 data 值")
+    func finishStripsTrailingLoneCRFromData() {
+        // "data: a\r" 里的 \r 落在缓冲区末尾，consume 阶段无法判定它是单独的
+        // CR 还是 CRLF 的前半，只能留给 finish 收尾。finish 冲刷残留字节时
+        // 必须先剥掉这个悬而未决的 \r，否则它会被整段解码进 data 字段的值。
+        let events = parse(["data: a\r"])
+        #expect(events.map(\.data) == ["a"])
+    }
+
+    @Test("finish 冲刷时，落在缓冲区末尾的孤立 CR 不应烙进 event 字段")
+    func finishStripsTrailingLoneCRFromEvent() {
+        // 整段落在缓冲区里的 "event: ping\rdata: x\r"：
+        // 第一个 \r 后面紧跟 'd'（不是 \n），consume 阶段能正常判定为单独 CR，
+        // 正确切出 "event: ping" 这一行；但第二个 \r 落在缓冲区末尾，
+        // 只能留给 finish 处理。若 finish 不剥离它，"data: x\r" 会被整段
+        // 解码，污染 data 字段（附带验证 event 字段本身在正常路径下不受影响）。
+        let events = parse(["event: ping\rdata: x\r"])
+        #expect(events.count == 1)
+        #expect(events[0].event == "ping")
+        #expect(events[0].data == "x")
+    }
+
+    @Test("finish 冲刷时，落在缓冲区末尾的孤立 CR 不应让 retry 静默丢失")
+    func finishStripsTrailingLoneCRFromRetry() {
+        // "retry: 3000\r" 的 \r 落在缓冲区末尾，consume 阶段无法判定，
+        // 残留到 finish。若不剥离，整段解码出的 value 是 "3000\r"，
+        // Int("3000\r") 返回 nil，retry 会被静默丢弃而不是报错。
+        let events = parse(["data: x\nretry: 3000\r"])
+        #expect(events.count == 1)
+        #expect(events[0].data == "x")
+        #expect(events[0].retry == 3000)
+    }
 }

@@ -36,6 +36,14 @@ final class SSEEventParser {
     /// 流结束时调用，冲刷末尾没有空行收尾的残留事件。
     func finish() -> [SSEEvent] {
         var events: [SSEEvent] = []
+        // consume 阶段对落在缓冲区末尾的 \r 会保守地留在缓冲区里，
+        // 因为无法判断它是单独的 CR 还是被切断的 CRLF 前半。
+        // 流已经结束，不会再有下一个字节来消解这个悬念，
+        // 这里按“单独 CR 也是行终止符”的规范把它当结尾换行剥掉，
+        // 避免它被当作残留内容烙进字段值里。
+        if byteBuffer.last == 0x0D {
+            byteBuffer.removeLast()
+        }
         if !byteBuffer.isEmpty {
             let line = String(decoding: byteBuffer, as: UTF8.self)
             byteBuffer.removeAll()
