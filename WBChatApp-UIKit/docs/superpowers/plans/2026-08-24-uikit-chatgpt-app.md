@@ -3468,7 +3468,13 @@ git add WBChatApp-UIKit/Core/Markdown WBChatApp-UIKitTests/AttributedCacheTests.
 ```swift
 protocol ChatRepository: AnyObject {
     func allConversations() throws -> [ConversationRecord]
-    func observeConversations(_ onChange: @escaping ([ConversationRecord]) -> Void) -> AnyDatabaseCancellable
+    /// 返回的 cancellable **必须被调用方持有**，否则 ARC 释放时观察会立即取消（静默不生效）。
+    /// `onError` 不要吞掉：GRDB 的语义是 onError 一旦触发观察即终止、不会自动恢复，
+    /// 吞掉它会让会话列表永久静默停止刷新且无任何诊断信号。
+    func observeConversations(
+        onError: ((Error) -> Void)?,
+        onChange: @escaping ([ConversationRecord]) -> Void
+    ) -> AnyDatabaseCancellable
     @discardableResult
     func createConversation(title: String, provider: ProviderKind, model: String) throws -> ConversationRecord
     func renameConversation(id: String, title: String) throws
@@ -3742,7 +3748,13 @@ import GRDB
 
 protocol ChatRepository: AnyObject {
     func allConversations() throws -> [ConversationRecord]
-    func observeConversations(_ onChange: @escaping ([ConversationRecord]) -> Void) -> AnyDatabaseCancellable
+    /// 返回的 cancellable **必须被调用方持有**，否则 ARC 释放时观察会立即取消（静默不生效）。
+    /// `onError` 不要吞掉：GRDB 的语义是 onError 一旦触发观察即终止、不会自动恢复，
+    /// 吞掉它会让会话列表永久静默停止刷新且无任何诊断信号。
+    func observeConversations(
+        onError: ((Error) -> Void)?,
+        onChange: @escaping ([ConversationRecord]) -> Void
+    ) -> AnyDatabaseCancellable
     @discardableResult
     func createConversation(title: String, provider: ProviderKind, model: String) throws -> ConversationRecord
     func renameConversation(id: String, title: String) throws
@@ -3772,7 +3784,13 @@ final class GRDBChatRepository: ChatRepository {
     }
 
     /// 数据库变化自动推送。会话列表用它，免去手动刷新。
-    func observeConversations(_ onChange: @escaping ([ConversationRecord]) -> Void) -> AnyDatabaseCancellable {
+    /// 返回的 cancellable **必须被调用方持有**，否则 ARC 释放时观察会立即取消（静默不生效）。
+    /// `onError` 不要吞掉：GRDB 的语义是 onError 一旦触发观察即终止、不会自动恢复，
+    /// 吞掉它会让会话列表永久静默停止刷新且无任何诊断信号。
+    func observeConversations(
+        onError: ((Error) -> Void)?,
+        onChange: @escaping ([ConversationRecord]) -> Void
+    ) -> AnyDatabaseCancellable {
         let observation = ValueObservation.tracking { db in
             try ConversationRecord.order(Column("updatedAt").desc).fetchAll(db)
         }
