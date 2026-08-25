@@ -5070,9 +5070,17 @@ final class BlockStackView: UIView {
                 updateView(at: blockViews.count - 1, with: first)
                 hasOpenBlock = false
             } else if patch.open == nil {
-                // 流结束但未收到对应的 sealed 块，直接把当前内容定稿
+                // 上一帧的未闭合块本帧既没被闭合、也没有新的开放内容——
+                // 说明它被撤回（例如流中止）。必须在这里就把占位视图移除，
+                // 不能只置 hasOpenBlock = false 了事：那样它会冒充已闭合块滞留在数组里，
+                // 而方法末尾原本负责移除的分支此时条件已失效，成为永远进不去的死代码。
+                pool.recycle(blockViews[blockViews.count - 1])
+                blockViews.removeLast()
+                blocks.removeLast()
                 hasOpenBlock = false
             }
+            // 两个分支都不满足：上一帧的未闭合块仍未闭合且本帧还有新开放内容，
+            // 留给下面 patch.open 分支的 updateView 原地更新。
         }
 
         for block in sealedQueue {
@@ -5086,12 +5094,6 @@ final class BlockStackView: UIView {
                 appendView(for: open)
                 hasOpenBlock = true
             }
-        } else if hasOpenBlock, let last = blockViews.last {
-            // 流已收尾且没有未闭合块，移除占位
-            pool.recycle(last)
-            blockViews.removeLast()
-            blocks.removeLast()
-            hasOpenBlock = false
         }
 
         invalidateHeights()
