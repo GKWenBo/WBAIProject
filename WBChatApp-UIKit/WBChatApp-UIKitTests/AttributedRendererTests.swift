@@ -117,4 +117,43 @@ struct AttributedRendererTests {
         let target = block(.paragraph, "**稳定** 的输出")
         #expect(renderer.render(target).isEqual(to: renderer.render(target)))
     }
+
+    // MARK: - 回归：列表项内多个子块不应粘连
+
+    @Test("嵌套列表：子列表与父项文字之间要有换行，不能粘连")
+    func nestedListDoesNotGlueChildren() {
+        // 实测 swift-markdown 解析 "- 甲\n  - 乙" 得到：
+        // Document > UnorderedList > ListItem { Paragraph("甲"), UnorderedList > ListItem { Paragraph("乙") } }
+        // 即一个 ListItem 有两个子块：段落 "甲" 和嵌套的无序列表。
+        let result = renderer.render(block(.list(ordered: false), "- 甲\n  - 乙"))
+        #expect(result.string == "• 甲\n• 乙")
+        #expect(!result.string.contains("甲• 乙"))
+    }
+
+    @Test("多段落列表项：段落之间要有换行，不能粘连")
+    func multiParagraphListItemDoesNotGlueChildren() {
+        // 实测 swift-markdown 解析 "- 甲\n\n  乙" 得到：
+        // Document > UnorderedList > ListItem { Paragraph("甲"), Paragraph("乙") }
+        // 即一个 ListItem 有两个段落子块。
+        let result = renderer.render(block(.list(ordered: false), "- 甲\n\n  乙"))
+        #expect(result.string == "• 甲\n乙")
+        #expect(!result.string.contains("甲乙"))
+    }
+
+    // MARK: - 回归护栏（现有实现已经正确，补测试防止未来改坏）
+
+    @Test("只有开围栏、还没换行的代码块不崩溃")
+    func codeFenceWithOnlyOpeningLine() {
+        let unsealed = block(.codeFence(language: nil), "```")
+        #expect(renderer.codeText(of: unsealed) == "")
+    }
+
+    @Test("粗斜体嵌套同时带上 bold 与 italic trait")
+    func boldItalicNested() {
+        let result = renderer.render(block(.paragraph, "***粗斜体***"))
+        #expect(result.string == "粗斜体")
+        let traits = traits(result, at: 0)
+        #expect(traits.contains(.traitBold))
+        #expect(traits.contains(.traitItalic))
+    }
 }

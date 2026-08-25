@@ -111,7 +111,10 @@ final class AttributedRenderer {
             result.append(NSAttributedString(string: marker(index),
                                              attributes: [.font: theme.bodyFont,
                                                           .foregroundColor: theme.secondaryColor]))
-            for child in item.children {
+            // 一个列表项可能含多个子块（嵌套列表、多段落），子块之间要换行；
+            // 但标记（"• "）和第一个子块之间不能插入换行，所以用子块下标判断，不能沿用 result.length。
+            for (childIndex, child) in item.children.enumerated() {
+                if childIndex > 0 { result.append(NSAttributedString(string: "\n")) }
                 result.append(renderBlockMarkup(child))
             }
         }
