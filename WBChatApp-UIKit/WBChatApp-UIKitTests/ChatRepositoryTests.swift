@@ -101,9 +101,94 @@ struct ChatRepositoryTests {
 
     @Test("role 与 status 便利属性可用")
     func convenienceAccessors() {
-        let record = message("m1", conversation: "c", ordinal: 0, role: .assistant)
+        // status 特意取非默认值（MessageStatus(rawValue:) ?? .completed 的默认回退值
+        // 正好是 .completed），避免硬编码返回 .completed 的实现也能骗过这条断言。
+        var record = message("m1", conversation: "c", ordinal: 0, role: .assistant)
+        record.statusRaw = MessageStatus.streaming.rawValue
         #expect(record.role == .assistant)
-        #expect(record.status == .completed)
+        #expect(record.status == .streaming)
+    }
+
+    /// 线程安全的快照收集器：observeConversations 的回调在主队列异步到达，
+    /// 测试断言时可能在另一个执行上下文读取，用锁保护避免数据竞争。
+    private final class ObservedSnapshots: @unchecked Sendable {
+        private let lock = NSLock()
+        private var snapshots: [[ConversationRecord]] = []
+
+        func append(_ value: [ConversationRecord]) {
+            lock.lock()
+            snapshots.append(value)
+            lock.unlock()
+        }
+
+        var last: [ConversationRecord]? {
+            lock.lock()
+            defer { lock.unlock() }
+            return snapshots.last
+        }
+
+        var count: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return snapshots.count
+        }
+    }
+
+    /// 轮询等待，直到条件成立或超时（用于等待 ValueObservation 的异步回调到达主线程）。
+    private func waitUntil(timeoutSeconds: Double = 2,
+                           condition: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while !condition() && Date() < deadline {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
+    @Test("订阅会话列表后新建会话会异步触发回调")
+    func observeConversationsEmitsOnInsert() async throws {
+        let repository = try makeRepository()
+        let snapshots = ObservedSnapshots()
+        // 返回的观察句柄必须被持有，否则 ARC 释放时观察会立即取消，永远等不到回调。
+        // 声明在 confirmation 闭包之外，并在函数末尾显式 withExtendedLifetime，
+        // 确保它在整个等待期间存活。
+        var cancellable: AnyDatabaseCancellable?
+
+        // expectedCount = 2：订阅时的首次推送（空列表）+ 新建会话后的推送。
+        await confirmation("收到会话列表变化回调", expectedCount: 2) { confirm in
+            cancellable = repository.observeConversations(onError: nil) { records in
+                snapshots.append(records)
+                confirm()
+            }
+            _ = try? repository.createConversation(title: "新会话", provider: .deepSeek, model: "m")
+            // ValueObservation 用 .async(onQueue: .main) 调度，回调是异步到达的，
+            // 这里必须真正等待第 2 次回调（新增后的推送），不能只等"任意一次"，
+            // 否则可能在首次推送（订阅时的空列表）后就提前返回。
+            await waitUntil { snapshots.count >= 2 }
+        }
+
+        #expect(snapshots.last?.contains(where: { $0.title == "新会话" }) == true)
+        withExtendedLifetime(cancellable) {}
+    }
+
+    @Test("订阅会话列表后删除会话会异步触发回调且列表更新")
+    func observeConversationsEmitsOnDelete() async throws {
+        let repository = try makeRepository()
+        let conversation = try repository.createConversation(title: "待删除", provider: .deepSeek, model: "m")
+        let snapshots = ObservedSnapshots()
+        var cancellable: AnyDatabaseCancellable?
+
+        // expectedCount = 2：订阅时的首次推送（含刚创建的会话）+ 删除后的推送（空列表）。
+        await confirmation("收到会话列表变化回调", expectedCount: 2) { confirm in
+            cancellable = repository.observeConversations(onError: nil) { records in
+                snapshots.append(records)
+                confirm()
+            }
+            try? repository.deleteConversation(id: conversation.id)
+            // 同理，等第 2 次回调（删除后的推送），而不是首次订阅时的推送。
+            await waitUntil { snapshots.count >= 2 }
+        }
+
+        #expect(snapshots.last?.isEmpty == true)
+        withExtendedLifetime(cancellable) {}
     }
 
     @Test("Keychain 存取删")

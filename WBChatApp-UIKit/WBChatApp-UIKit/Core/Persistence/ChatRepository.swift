@@ -3,7 +3,15 @@ import GRDB
 
 protocol ChatRepository: AnyObject {
     func allConversations() throws -> [ConversationRecord]
-    func observeConversations(_ onChange: @escaping ([ConversationRecord]) -> Void) -> AnyDatabaseCancellable
+    /// 订阅会话列表变化。
+    /// - Parameter onError: 观察内部出错时的回调（可选）。GRDB 的语义是 onError 一旦触发，
+    ///   观察即终止，不会自动恢复，也不会再有后续 onChange，因此调用方应据此提示或重新订阅。
+    /// - Parameter onChange: 会话列表变化时的回调，订阅后会立即推送一次当前值。
+    /// - Returns: 观察句柄。**调用方必须持有它**，一旦被 ARC 释放，观察会被立即静默取消。
+    func observeConversations(
+        onError: ((Error) -> Void)?,
+        onChange: @escaping ([ConversationRecord]) -> Void
+    ) -> AnyDatabaseCancellable
     @discardableResult
     func createConversation(title: String, provider: ProviderKind, model: String) throws -> ConversationRecord
     func renameConversation(id: String, title: String) throws
@@ -33,13 +41,23 @@ final class GRDBChatRepository: ChatRepository {
     }
 
     /// 数据库变化自动推送。会话列表用它，免去手动刷新。
-    func observeConversations(_ onChange: @escaping ([ConversationRecord]) -> Void) -> AnyDatabaseCancellable {
+    /// 注意：返回的观察句柄必须被调用方持有，否则 ARC 释放时观察会立即取消。
+    func observeConversations(
+        onError: ((Error) -> Void)? = nil,
+        onChange: @escaping ([ConversationRecord]) -> Void
+    ) -> AnyDatabaseCancellable {
         let observation = ValueObservation.tracking { db in
             try ConversationRecord.order(Column("updatedAt").desc).fetchAll(db)
         }
         return observation.start(in: queue,
                                  scheduling: .async(onQueue: .main),
-                                 onError: { _ in },
+                                 onError: { error in
+                                     // GRDB 语义：onError 触发后观察即终止，不会自动恢复，
+                                     // 也不会再有后续 onChange。这里不能吞掉错误，
+                                     // 否则会话列表会永久静默停止刷新且无任何诊断信号。
+                                     print("[ChatRepository] observeConversations 观察出错，已终止: \(error)")
+                                     onError?(error)
+                                 },
                                  onChange: onChange)
     }
 
