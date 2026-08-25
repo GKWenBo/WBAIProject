@@ -2660,12 +2660,22 @@ struct CodeHighlighter: Sendable {
         let characters = Array(code)
         var index = 0
 
+        // Character（字位簇）偏移与 NSRange 要的 UTF-16 偏移并不相等：
+        // emoji 等非 BMP 字符占 2 个 code unit，直接拿 Character 下标当 NSRange
+        // 会让该字符之后所有 token 的高亮区间整体错位。这里预先建一张映射表。
+        // utf16Offsets[i] 是第 i 个 Character 的 UTF-16 起始偏移，长度为 count + 1。
+        var utf16Offsets = [Int](repeating: 0, count: characters.count + 1)
+        for (i, character) in characters.enumerated() {
+            utf16Offsets[i + 1] = utf16Offsets[i] + character.utf16.count
+        }
+
         func apply(_ kind: CodeTokenKind, from start: Int, to end: Int) {
             guard end > start else { return }
+            let location = utf16Offsets[start]
             result.addAttributes([
                 .foregroundColor: Self.color(for: kind, theme: theme),
                 .wbCodeTokenKind: kind.rawValue,
-            ], range: NSRange(location: start, length: end - start))
+            ], range: NSRange(location: location, length: utf16Offsets[end] - location))
         }
 
         while index < characters.count {
@@ -2700,7 +2710,9 @@ struct CodeHighlighter: Sendable {
                 let start = index
                 index += 1
                 while index < characters.count {
-                    if characters[index] == "\\" { index += 2; continue }
+                    // 反斜杠若恰好是最后一个字符（流式截断很容易出现），
+                    // 裸的 index += 2 会跳出数组，随后 apply 构造出越界 NSRange 崩溃
+                    if characters[index] == "\\" { index = min(index + 2, characters.count); continue }
                     if characters[index] == quote { index += 1; break }
                     if characters[index] == "\n" { break }
                     index += 1
