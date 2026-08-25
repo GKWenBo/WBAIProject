@@ -3193,7 +3193,20 @@ git add WBChatApp-UIKit/Core/Markdown WBChatApp-UIKitTests/AttributedRendererTes
 
 **Interfaces:**
 - Consumes: `MarkdownBlock`（Task 7）
-- Produces: `final class AttributedCache { init(countLimit: Int = 400); func attributedString(for block: MarkdownBlock, render: (MarkdownBlock) -> NSAttributedString) -> NSAttributedString; func height(for block: MarkdownBlock, width: CGFloat, measure: (NSAttributedString) -> CGFloat) -> CGFloat; func removeAll() }`
+- Produces: `final class AttributedCache`
+  ```swift
+  init(countLimit: Int = 400)
+  func attributedString(for block: MarkdownBlock,
+                        render: (MarkdownBlock) -> NSAttributedString) -> NSAttributedString
+  func height(for block: MarkdownBlock,
+              width: CGFloat,
+              render: (MarkdownBlock) -> NSAttributedString,
+              measure: (NSAttributedString) -> CGFloat) -> CGFloat
+  func removeAll()
+  ```
+  > `height` 必须自带 `render` 闭包。早先的设计让它依赖「调用方先调过 `attributedString` 建好条目」，
+  > 缺条目时退回测量一个空串——测出来的高度与真实内容无关。实测下 `heightMeasuredOncePerWidth`
+  > 直接失败，另两条则是「巧合通过」（断言只数调用次数，恰好对上）。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -3408,8 +3421,6 @@ final class AttributedCache {
 }
 ```
 
-> **注意**：`height(for:width:measure:)` 依赖对应条目已经由 `attributedString(for:render:)` 建立。视图层必须先取属性串再问高度——`BlockStackView`（Task 12）就是这个顺序。
-
 - [ ] **Step 4: 运行测试确认通过**
 
 ```bash
@@ -3417,8 +3428,6 @@ xcodebuild test -project WBChatApp-UIKit.xcodeproj -scheme WBChatApp-UIKit -dest
 ```
 
 Expected: 9 个用例全部 PASS。
-
-若「同宽度的高度只测量一次」失败，检查测试里是否先调了 `attributedString(for:render:)`——需要在 `height` 之前建立条目。若确实如此仍失败，把 `height` 改为接受 `render` 闭包并在缺条目时先建条目。
 
 - [ ] **Step 5: 提交**
 
