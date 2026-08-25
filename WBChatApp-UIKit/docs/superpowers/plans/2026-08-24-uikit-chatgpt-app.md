@@ -5555,6 +5555,12 @@ final class ChatViewModel {
     }
     enum Output {
         case stateChanged(State)
+        /// 该消息的块视图需要整体清空重建（例如 retry 重新起了一轮流）。
+        /// 下游收到后必须对相应 cell 的块视图调 `setBlocks([])`——
+        /// 否则失败流结束时 finish() 已把 open 块封口，retry 后第一帧补丁到达时
+        /// applyPatch 顶部的「上一帧未闭合块」特判会整段跳过，
+        /// 把新一轮内容**追加**在旧失败内容后面。
+        case blocksReset(messageID: String)
         case blocksPatched(messageID: String, patch: BlockPatch)
         case reasoningUpdated(messageID: String, text: String)
         case streamFinished(messageID: String)
@@ -5941,6 +5947,12 @@ final class ChatViewModel {
 
     enum Output {
         case stateChanged(State)
+        /// 该消息的块视图需要整体清空重建（例如 retry 重新起了一轮流）。
+        /// 下游收到后必须对相应 cell 的块视图调 `setBlocks([])`——
+        /// 否则失败流结束时 finish() 已把 open 块封口，retry 后第一帧补丁到达时
+        /// applyPatch 顶部的「上一帧未闭合块」特判会整段跳过，
+        /// 把新一轮内容**追加**在旧失败内容后面。
+        case blocksReset(messageID: String)
         case blocksPatched(messageID: String, patch: BlockPatch)
         case reasoningUpdated(messageID: String, text: String)
         case streamFinished(messageID: String)
