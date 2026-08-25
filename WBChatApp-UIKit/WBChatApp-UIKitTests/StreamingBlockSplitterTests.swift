@@ -175,7 +175,18 @@ struct StreamingBlockSplitterTests {
         _ = splitter.append("a\r")
         _ = splitter.append("\nb\r\n")
         _ = splitter.finish()
-        #expect(splitter.allBlocks.map(\.rawText) == ["a", "b"])
+        // "a\r" + "\nb\r\n" 是同一个 CRLF 被切在两次 append 之间：
+        // 行序列应为 "a"、"b" 两行非空行，属于同一段落（软换行），
+        // 合并成一个块 "a\nb"。若被误判为空行分隔的两段（["a", "b"]），
+        // 说明 CRLF 被错误拆成了「行终止 + 一个空行」。
+        #expect(splitter.allBlocks.map(\.rawText) == ["a\nb"])
+    }
+
+    @Test("连续非空行合并为一个段落，软换行不切块")
+    func softBreaksStayInOneParagraph() {
+        let blocks = splitAtOnce("第一行\n第二行\n第三行\n\n下一段\n")
+        #expect(blocks.map(\.kind) == [.paragraph, .paragraph])
+        #expect(blocks.map(\.rawText) == ["第一行\n第二行\n第三行", "下一段"])
     }
 
     @Test("finish 把最后的 open 块闭合")

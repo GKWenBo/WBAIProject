@@ -170,13 +170,21 @@ struct StreamingBlockSplitter {
                 }
 
             case .paragraph:
-                // 段落是单行块：不管接下来是空行、其它块类型的起始行，
-                // 还是又一行普通文本，都会让当前段落立刻闭合，该行交回外层重新处理。
-                // 段落的"最后一行"之所以能看起来还在增长，只是因为它还没等到
-                // 换行符、仍停留在 partial 里、以 open 状态呈现——一旦成为完整行，
-                // 就说明上一行已经写完，必须立刻闭合（这样才能尽早进缓存）。
-                sealed.append(seal())
-                lineToProcess = currentLine
+                // 段落是多行块：连续的非空行属于同一段落（Markdown 软换行），
+                // 只有遇到空行或其它块类型的起始行才会闭合。
+                if isBlank {
+                    // 空行：段落到此结束
+                    sealed.append(seal())
+                } else if Self.startsNewBlock(currentLine) {
+                    // 遇到标题/围栏/列表/引用/表格/分割线等起始行：
+                    // 闭合当前段落，把该行交回外层按新块类型重新处理
+                    sealed.append(seal())
+                    lineToProcess = currentLine
+                } else {
+                    // 普通非空行：追加到当前段落，不闭合
+                    block.lines.append(currentLine)
+                    current = block
+                }
 
             case .heading, .thematicBreak:
                 // 这两类在开块时已立即闭合，理论上到不了这里
