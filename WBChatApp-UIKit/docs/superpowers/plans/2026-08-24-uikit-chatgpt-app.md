@@ -3204,6 +3204,13 @@ git add WBChatApp-UIKit/Core/Markdown WBChatApp-UIKitTests/AttributedRendererTes
               measure: (NSAttributedString) -> CGFloat) -> CGFloat
   func removeAll()
   ```
+  > **宽度必须量化后再做缓存键。** 宽度来自 safe area、约束求解等浮点路径，两次算出的值可能只差一个 ulp，
+  > 直接拿它做字典键会让缓存**静默失效**（无报错，只表现为性能变差）。实现按固定粒度 3 量化
+  > （`(width * 3).rounded() / 3`，覆盖 @3x），不用 `UIScreen.main.scale`——后者在 iOS 17+ 已 deprecated，
+  > 且会让缓存行为与运行环境耦合。
+  >
+  > **本类型假定所有调用都在主线程，内部不做同步**：`Entry.heights` 是普通字典，跨线程并发调 `height` 会数据竞争。
+  >
   > `height` 必须自带 `render` 闭包。早先的设计让它依赖「调用方先调过 `attributedString` 建好条目」，
   > 缺条目时退回测量一个空串——测出来的高度与真实内容无关。实测下 `heightMeasuredOncePerWidth`
   > 直接失败，另两条则是「巧合通过」（断言只数调用次数，恰好对上）。
