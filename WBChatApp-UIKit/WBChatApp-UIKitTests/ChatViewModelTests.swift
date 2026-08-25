@@ -184,8 +184,10 @@ struct ChatViewModelTests {
         throttle.fire()
 
         let assistant = try repository.messages(in: conversationID).first { $0.role == .assistant }
-        // 占位是 streaming 状态且内容为空，说明中途没有把片段写进去
-        #expect(assistant?.content.isEmpty == true || assistant?.status == .streaming)
+        // 拆成两条独立断言：用 || 连接会让这条测试恒真（当前实现下两个条件天然同时
+        // 成立），将来若引入"中途只写 content 不改 status"这类回归，原写法发现不了
+        #expect(assistant?.content.isEmpty == true, "中途不该把片段写进去")
+        #expect(assistant?.status == .streaming, "中途状态应仍是 streaming")
         await waitForStreamEnd(viewModel)
     }
 
@@ -262,5 +264,74 @@ struct ChatViewModelTests {
         let assistantID = try #require(viewModel.state.messages.last?.id)
         let blocks = viewModel.blocks(for: assistantID)
         #expect(blocks.map(\.kind) == [.heading(level: 1), .paragraph])
+    }
+
+    /// 流式期间调用 retryLast 应该是无操作：否则旧流仍在后台跑，
+    /// 会把内容写进被新一轮重置的缓冲区，污染新流；且 stop() 会失去旧任务的引用
+    @Test("流式进行中调用 retryLast 不产生副作用")
+    func retryLastNoOpWhileStreaming() async throws {
+        let (viewModel, _, _, _) = try makeViewModel(
+            chunks: (0..<50).map { _ in .textDelta("续") })
+        viewModel.send("hi")
+        #expect(viewModel.state.isStreaming)
+
+        let messagesBefore = viewModel.state.messages
+        viewModel.retryLast()
+        #expect(viewModel.state.messages == messagesBefore, "流式中的 retryLast 不该改变消息列表")
+        #expect(viewModel.state.isStreaming)
+
+        viewModel.stop()
+        await waitForStreamEnd(viewModel)
+    }
+
+    /// retryLast 必须先发出 blocksReset 通知下游整体清空块视图，
+    /// 再让新一轮流开始产出 blocksPatched，顺序颠倒会导致新内容追加在旧内容后面
+    @Test("retryLast 发出 blocksReset 且排在 blocksPatched 之前")
+    func retryEmitsBlocksResetBeforePatches() async throws {
+        let (viewModel, throttle, _, _) = try makeViewModel(
+            chunks: [.textDelta("一些内容"), .done(finishReason: "stop")])
+
+        viewModel.send("hi")
+        try await Task.sleep(for: .milliseconds(50))
+        throttle.fire()
+        await waitForStreamEnd(viewModel)
+
+        enum Event: Equatable { case reset, patched }
+        var events: [Event] = []
+        viewModel.onOutput = { output in
+            switch output {
+            case .blocksReset: events.append(.reset)
+            case .blocksPatched: events.append(.patched)
+            default: break
+            }
+        }
+
+        viewModel.retryLast()
+        try await Task.sleep(for: .milliseconds(50))
+        throttle.fire()
+        await waitForStreamEnd(viewModel)
+
+        #expect(events.first == .reset, "blocksReset 应该是 retryLast 之后的第一个相关事件")
+        let resetIndex = try #require(events.firstIndex(of: .reset))
+        let patchIndices = events.indices.filter { events[$0] == .patched }
+        #expect(!patchIndices.isEmpty, "retry 后的新一轮流应该产出 blocksPatched")
+        #expect(patchIndices.allSatisfy { $0 > resetIndex }, "所有 blocksPatched 都应排在 blocksReset 之后")
+    }
+
+    /// send() 一次调用会插入两条消息并进入流式态，这些字段赋值应合并成一次
+    /// state 提交，避免下游对同一个逻辑动作应用多次快照/动画
+    @Test("send 一次调用只触发一次 stateChanged")
+    func sendFiresStateChangedOnce() async throws {
+        let (viewModel, _, _, _) = try makeViewModel(chunks: [.done(finishReason: "stop")])
+
+        var stateChangeCount = 0
+        viewModel.onOutput = { output in
+            if case .stateChanged = output { stateChangeCount += 1 }
+        }
+
+        viewModel.send("hi")
+        #expect(stateChangeCount == 1)
+
+        await waitForStreamEnd(viewModel)
     }
 }

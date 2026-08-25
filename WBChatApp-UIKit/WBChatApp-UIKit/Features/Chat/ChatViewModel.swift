@@ -31,6 +31,10 @@ final class ChatViewModel {
 
     enum Output {
         case stateChanged(State)
+        /// 该消息的块视图需要整体清空重建（例如 retry 重新起了一轮流）。
+        /// 下游收到后应对相应 cell 的块视图调用 `setBlocks([])`，
+        /// 避免新一轮内容被 `applyPatch` 追加到上一轮失败内容之后。
+        case blocksReset(messageID: String)
         case blocksPatched(messageID: String, patch: BlockPatch)
         case reasoningUpdated(messageID: String, text: String)
         case streamFinished(messageID: String)
@@ -138,19 +142,41 @@ final class ChatViewModel {
         try? repository.insertMessage(assistantRecord)
         try? repository.touchConversation(id: conversationID)
 
-        state.messages.append(Self.viewData(from: userRecord))
-        state.messages.append(Self.viewData(from: assistantRecord))
+        // 把「插入两条消息」与「进入流式态」合并成一次赋值，
+        // 避免一次 send() 调用触发多次 stateChanged
+        var newState = state
+        newState.messages.append(Self.viewData(from: userRecord))
+        newState.messages.append(Self.viewData(from: assistantRecord))
+        newState.isStreaming = true
+        newState.canSend = false
+        state = newState
 
         startStream(assistantID: assistantRecord.id)
     }
 
     func retryLast() {
-        guard let last = state.messages.last, last.role == .assistant else { return }
-        // 把失败的助手消息重置为流式占位后重新拉一次
-        state.messages[state.messages.count - 1] = MessageViewData(
+        // 已有一条流在跑时不允许并发起第二条：否则旧 Task 仍会在后台
+        // 继续 handle(chunk)，把内容写进被新流重置的 pendingText/accumulatedText/splitter，
+        // 污染新流；且 stop() 只持有最新 streamTask 引用，旧任务会失去引用永远取消不掉。
+        // 注意：这里不额外限制「只能对失败消息重试」——对已完成消息重新生成是有意支持的场景。
+        guard !state.isStreaming, let last = state.messages.last, last.role == .assistant else { return }
+
+        // 把失败/已完成的助手消息重置为流式占位后重新拉一次
+        var newState = state
+        newState.messages[newState.messages.count - 1] = MessageViewData(
             id: last.id, role: .assistant, text: "", reasoning: nil,
             status: .streaming, errorText: nil)
+        newState.isStreaming = true
+        newState.canSend = false
+
         blocksByMessage[last.id] = []
+        state = newState
+
+        // 显式告知下游：该消息的块视图需要整体清空重建。
+        // 必须排在 startStream 之前——它会异步产出 blocksPatched，
+        // 顺序颠倒会让下游先清空后收到的新内容
+        onOutput?(.blocksReset(messageID: last.id))
+
         startStream(assistantID: last.id)
     }
 
@@ -163,6 +189,10 @@ final class ChatViewModel {
     // MARK: - 流式主流程
 
     private func startStream(assistantID: String) {
+        // 覆盖变量前先取消已存在的流：否则旧 Task 会失去唯一引用，
+        // 在后台继续跑并把内容写进被下面重置的缓冲区，污染新流
+        streamTask?.cancel()
+
         streamingMessageID = assistantID
         splitter = StreamingBlockSplitter()
         pendingText = ""
@@ -172,8 +202,8 @@ final class ChatViewModel {
         usage = nil
         isStopping = false
 
-        state.isStreaming = true
-        state.canSend = false
+        // isStreaming/canSend 已由调用方（send/retryLast）与各自的其他字段
+        // 合并为一次 state 赋值，这里不再重复触发 stateChanged
         throttle.start()
 
         let request = makeRequest()
@@ -260,14 +290,12 @@ final class ChatViewModel {
             status = isStopping ? .stopped : .completed
         }
 
+        // updateMessage 内部会把消息内容与 isStreaming/canSend 合并为一次 state 赋值
         updateMessage(id: messageID,
                       text: accumulatedText,
                       reasoning: accumulatedReasoning.isEmpty ? nil : accumulatedReasoning,
                       status: status,
                       errorText: errorText)
-
-        state.isStreaming = false
-        state.canSend = true
 
         if let error, status == .failed {
             onOutput?(.failed(error, messageID: messageID))
@@ -278,13 +306,20 @@ final class ChatViewModel {
 
     // MARK: - 落库
 
-    /// 只在流结束时写一次，避免高频写放大
+    /// 只在流结束时写一次，避免高频写放大。
+    /// 顺带把「消息内容更新」与「退出流式态」合并成一次 state 赋值——
+    /// 这是 finishStream() 收尾时唯一的一次 stateChanged
     private func updateMessage(id: String, text: String, reasoning: String?,
                                status: MessageStatus, errorText: String?) {
-        guard let index = state.messages.firstIndex(where: { $0.id == id }) else { return }
-        state.messages[index] = MessageViewData(id: id, role: .assistant, text: text,
-                                                reasoning: reasoning, status: status,
-                                                errorText: errorText)
+        var newState = state
+        if let index = newState.messages.firstIndex(where: { $0.id == id }) {
+            newState.messages[index] = MessageViewData(id: id, role: .assistant, text: text,
+                                                        reasoning: reasoning, status: status,
+                                                        errorText: errorText)
+        }
+        newState.isStreaming = false
+        newState.canSend = true
+        state = newState
 
         guard var record = try? repository.messages(in: conversationID).first(where: { $0.id == id })
         else { return }
