@@ -5597,19 +5597,39 @@ final class ManualThrottle: StreamThrottling {
     func fire() { onTick?() }
 }
 
-/// 按脚本吐 chunk 的 Provider 替身
+/// 按脚本吐 chunk 的 Provider 替身。
+///
+/// **必须真实分帧投递，不能同步一次性 yield 完。** 同步 yield 会让整条流在消费端
+/// 真正开始 for-await 迭代之前就全部进了缓冲区，ViewModel 会在一个执行回合内跑完，
+/// 测试里的 sleep + 手动 `throttle.fire()` 根本卡不到流中途，
+/// 「流式期间不出补丁」「多个 delta 被合并成一次补丁」这类用例就全部失效了。
 final class ScriptedProvider: ChatProvider {
     private let chunks: [StreamChunk]
     private let error: Error?
-    init(chunks: [StreamChunk], error: Error? = nil) {
+    private let delay: Duration
+
+    init(chunks: [StreamChunk], error: Error? = nil, delay: Duration = .milliseconds(25)) {
         self.chunks = chunks
         self.error = error
+        self.delay = delay
     }
+
     func stream(_ request: ChatRequest) -> AsyncThrowingStream<StreamChunk, Error> {
         AsyncThrowingStream { continuation in
-            for chunk in chunks { continuation.yield(chunk) }
-            if let error { continuation.finish(throwing: error) }
-            else { continuation.finish() }
+            let task = Task {
+                do {
+                    for chunk in chunks {
+                        try await Task.sleep(for: delay)
+                        continuation.yield(chunk)
+                    }
+                    if let error { continuation.finish(throwing: error) }
+                    else { continuation.finish() }
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            // 消费端退出后别让生产者在后台空转
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 }
@@ -6073,8 +6093,10 @@ final class ChatViewModel {
             do {
                 for try await chunk in provider.stream(request) {
                     guard let self else { return }
-                    try Task.checkCancellation()
+                    // 先处理再检查取消：反过来的话，stop() 与「已到手但还没处理」的
+                    // chunk 竞速时会把这个增量直接丢掉，违背「停止应保留已生成内容」的语义
                     self.handle(chunk)
+                    try Task.checkCancellation()
                 }
                 self?.finishStream(error: nil)
             } catch {
