@@ -55,12 +55,25 @@ struct CodeHighlighter: Sendable {
         let characters = Array(code)
         var index = 0
 
+        // 扫描过程中 start/end/index 都是 Character（字位簇）偏移，但 NSMutableAttributedString
+        // 的 NSRange 要的是 UTF-16 偏移。含非 BMP 字符（如 emoji）或多标量字位簇时两者不相等，
+        // 直接把 Character 偏移当 NSRange 用会导致该字符之后的高亮区间整体错位。
+        // 这里预先算出每个 Character 偏移对应的 UTF-16 起始偏移，apply 时做一次换算。
+        // utf16Offsets[i] 表示第 i 个 Character 在 UTF-16 视图里的起始偏移，
+        // 长度为 characters.count + 1，最后一个元素是整段文本的 UTF-16 总长度。
+        var utf16Offsets = [Int](repeating: 0, count: characters.count + 1)
+        for i in 0..<characters.count {
+            utf16Offsets[i + 1] = utf16Offsets[i] + characters[i].utf16.count
+        }
+
         func apply(_ kind: CodeTokenKind, from start: Int, to end: Int) {
             guard end > start else { return }
+            let location = utf16Offsets[start]
+            let length = utf16Offsets[end] - location
             result.addAttributes([
                 .foregroundColor: Self.color(for: kind, theme: theme),
                 .wbCodeTokenKind: kind.rawValue,
-            ], range: NSRange(location: start, length: end - start))
+            ], range: NSRange(location: location, length: length))
         }
 
         while index < characters.count {
@@ -95,7 +108,9 @@ struct CodeHighlighter: Sendable {
                 let start = index
                 index += 1
                 while index < characters.count {
-                    if characters[index] == "\\" { index += 2; continue }
+                    // 反斜杠可能恰好是输入的最后一个字符（流式渲染下截断内容常见），
+                    // 与块注释分支保持一致，用 min 防止跳过数组末尾导致越界。
+                    if characters[index] == "\\" { index = min(index + 2, characters.count); continue }
                     if characters[index] == quote { index += 1; break }
                     if characters[index] == "\n" { break }
                     index += 1
