@@ -26,6 +26,19 @@
 - 构建/测试目标模拟器统一为 **iPhone 17 Pro，OS=26.5**。`OS=26.5` 不可省略——本机上只写 `name=iPhone 17 Pro` 会报 `Unable to find a device matching the provided destination specifier`（已实测稳定复现）。
 - **`SWIFT_VERSION = 5.0`，`SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated`**（Task 1 已配好）。因此类型**默认不是** MainActor 隔离的：Core 层保持 `nonisolated` 即可满足 `Sendable` 约束；只有 ViewModel、ViewController 与视图类需要显式标 `@MainActor`。不要给 Core 层的值类型逐个加 `nonisolated`，那是默认 MainActor 隔离工程才需要的做法。
 - **不要修改 `project.pbxproj`。** 工程是 `objectVersion = 77` 的 Xcode 26 新格式，启用了 `fileSystemSynchronizedGroups`——在磁盘上按目录建 `.swift` 文件即自动加入对应 target，无需也不应手改工程文件。
+- ⚠️ **文件路径基准：本计划所有 `WBChatApp-UIKit/...` 路径都相对于 Xcode 工程目录 `/Users/wenbo/Desktop/WBAIProject/WBChatApp-UIKit/`。** 也就是说 App 源码的绝对根目录是：
+
+  ```
+  /Users/wenbo/Desktop/WBAIProject/WBChatApp-UIKit/WBChatApp-UIKit/
+  ```
+
+  注意这里有**两层同名目录**（外层是 Xcode 工程目录，内层是被 target 同步的源码目录）。建文件前先 `pwd` 确认，或直接用绝对路径。**放错一层不会报错——文件只是不参与编译，`xcodebuild build` 照样 `BUILD SUCCEEDED`**，这是 Task 3 真实踩过的坑（四个类型文件建在外层，从未被编译，直到下一个任务引用它们才暴露）。
+
+  建完文件后核验一句：
+  ```bash
+  find /Users/wenbo/Desktop/WBAIProject/WBChatApp-UIKit -name "*.swift" -not -path "*/.build/*" | sort
+  ```
+  所有 App 源码都必须在 `WBChatApp-UIKit/WBChatApp-UIKit/` 下，测试在 `WBChatApp-UIKit/WBChatApp-UIKitTests/` 下。
 
 **通用命令**（在 `/Users/wenbo/Desktop/WBAIProject/WBChatApp-UIKit` 下执行）：
 
