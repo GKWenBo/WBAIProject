@@ -25,6 +25,13 @@ final class ChatViewController: UIViewController {
     private let inputBar = InputBarView()
     private let scrollToBottomButton = ScrollToBottomButton()
 
+    // MARK: - 语音输入
+
+    private let transcriber: SpeechTranscribing = SystemSpeechTranscriber()
+    private var recordingOverlay: RecordingOverlayView?
+    private var speechTask: Task<Void, Never>?
+    private var transcribedText = ""
+
     private var dataSource: UITableViewDiffableDataSource<Int, String>!
 
     /// 行高缓存。键是消息 id，值是当前宽度下的高度。
@@ -114,6 +121,7 @@ final class ChatViewController: UIViewController {
         }
         inputBar.onStop = { [weak self] in self?.viewModel.stop() }
         inputBar.onHeightChange = { [weak self] in self?.stickToBottomIfNeeded() }
+        inputBar.onMicTap = { [weak self] in self?.startVoiceInput() }
 
         scrollToBottomButton.addTarget(self, action: #selector(handleScrollToBottom),
                                        for: .touchUpInside)
@@ -320,6 +328,85 @@ final class ChatViewController: UIViewController {
         let maxOffset = tableView.contentSize.height
             - tableView.bounds.height + tableView.adjustedContentInset.bottom
         return max(0, maxOffset - tableView.contentOffset.y)
+    }
+
+    // MARK: - 语音输入
+
+    private func startVoiceInput() {
+        Task { @MainActor in
+            guard await transcriber.requestAuthorization() else {
+                presentPermissionAlert()
+                return
+            }
+            presentRecordingOverlay()
+
+            do {
+                transcribedText = ""
+                for try await event in try transcriber.start() {
+                    switch event {
+                    case .partial(let text), .final(let text):
+                        transcribedText = text
+                        recordingOverlay?.setText(text)
+                    case .level(let value):
+                        recordingOverlay?.update(level: value)
+                    }
+                }
+            } catch {
+                dismissRecordingOverlay()
+                presentErrorAlert("语音识别失败，请重试")
+                return
+            }
+            finishVoiceInput(confirmed: true)
+        }
+    }
+
+    private func presentRecordingOverlay() {
+        let overlay = RecordingOverlayView()
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            overlay.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+        ])
+        overlay.onCancel = { [weak self] in self?.finishVoiceInput(confirmed: false) }
+        overlay.onConfirm = { [weak self] in self?.finishVoiceInput(confirmed: true) }
+        recordingOverlay = overlay
+        Haptics.light()
+    }
+
+    /// 识别结果写进输入框而**不直接发送**，用户可以先改再发
+    private func finishVoiceInput(confirmed: Bool) {
+        transcriber.stop()
+        dismissRecordingOverlay()
+        guard confirmed, !transcribedText.isEmpty else { return }
+        let existing = inputBar.text
+        inputBar.setText(existing.isEmpty ? transcribedText : existing + transcribedText)
+    }
+
+    private func dismissRecordingOverlay() {
+        recordingOverlay?.removeFromSuperview()
+        recordingOverlay = nil
+    }
+
+    private func presentPermissionAlert() {
+        let alert = UIAlertController(
+            title: "需要麦克风与语音识别权限",
+            message: "请在「设置 → 隐私」中允许本 App 使用麦克风与语音识别",
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "去设置", style: .default) { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func presentErrorAlert(_ message: String) {
+        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "好", style: .default))
+        present(alert, animated: true)
     }
 }
 
