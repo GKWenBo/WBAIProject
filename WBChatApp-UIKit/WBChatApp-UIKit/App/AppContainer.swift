@@ -62,3 +62,10 @@ final class AppContainer {
         return created?.id ?? UUID().uuidString
     }
 }
+
+extension AppContainer {
+    @MainActor
+    func makeSettingsViewController() -> SettingsViewController {
+        SettingsViewController(viewModel: SettingsViewModel(settings: settings))
+    }
+}
