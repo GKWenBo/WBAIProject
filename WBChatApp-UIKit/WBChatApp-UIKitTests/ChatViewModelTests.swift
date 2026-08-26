@@ -235,6 +235,45 @@ struct ChatViewModelTests {
         #expect(!throttle.isRunning)
     }
 
+    @Test("ViewModel 释放时会停止节流器，避免 CADisplayLink 自持有循环导致泄漏")
+    func deinitStopsThrottle() async throws {
+        // 故意不走 makeViewModel() 那个共享 helper：它返回的元组里 viewModel 字段
+        // 如果先被 let 绑成另一个名字（哪怕后面把 optional var 设成 nil），
+        // 元组本身在 -Onone 调试构建下会一直存活到作用域结束，仍然强引用着
+        // ChatViewModel，deinit 根本不会触发——这曾让这条用例本身误报失败。
+        // 这里让「初始化表达式的结果」只被赋给唯一一个 optional var，
+        // 才能保证置 nil 就是这个对象唯一强引用的释放点。
+        let repository = GRDBChatRepository(queue: try AppDatabase.makeQueue(at: nil))
+        let conversation = try repository.createConversation(title: "会话", provider: .deepSeek,
+                                                              model: "deepseek-chat")
+        let throttle = ManualThrottle()
+        let providerBox = ProviderBox()
+
+        var viewModel: ChatViewModel? = ChatViewModel(
+            conversationID: conversation.id,
+            repository: repository,
+            providerFactory: {
+                let provider = GatedProvider(chunks: [.done(finishReason: "stop")], error: nil)
+                providerBox.current = provider
+                return provider
+            },
+            systemPrompt: nil,
+            model: "deepseek-chat",
+            throttle: throttle)
+
+        viewModel?.send("hi")
+        #expect(throttle.isRunning)
+
+        // 流还没结束就释放 ViewModel（对应场景：抽屉切会话时旧 ViewModel 该被回收，
+        // 但流式还没跑完）。deinit 里如果漏了 throttle.stop()，CADisplayLink 会靠
+        // 强引用 target 自环，永远不被系统回收；这里用 ManualThrottle.isRunning
+        // 断言 stop() 确实被调用到了。
+        let provider = try #require(providerBox.current)
+        viewModel = nil
+        withExtendedLifetime(provider) {}
+        #expect(!throttle.isRunning)
+    }
+
     @Test("思考增量走独立通路")
     func reasoningGoesToSeparateOutput() async throws {
         let (viewModel, throttle, _, _, providerBox) = try makeViewModel(

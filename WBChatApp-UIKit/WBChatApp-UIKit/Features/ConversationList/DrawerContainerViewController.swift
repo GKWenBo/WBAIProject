@@ -44,7 +44,9 @@ final class DrawerContainerViewController: UIViewController {
         view.addSubview(contentViewController.view)
         contentViewController.didMove(toParent: self)
 
-        view.insertSubview(dimmingView, belowSubview: contentViewController.view)
+        // dimmingView 必须在最顶层：它只覆盖 content 被平移后露出的那部分矩形，
+        // 从不叠在 drawer 区域上，drawer 区域自己的 UI 才不会被遮罩吞掉触摸事件。
+        view.addSubview(dimmingView)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(closeDrawer))
         dimmingView.addGestureRecognizer(tap)
@@ -58,7 +60,6 @@ final class DrawerContainerViewController: UIViewController {
         super.viewDidLayoutSubviews()
         drawerViewController.view.frame = CGRect(x: 0, y: 0,
                                                  width: drawerWidth, height: view.bounds.height)
-        dimmingView.frame = view.bounds
         layoutContent(open: isOpen)
     }
 
@@ -69,9 +70,9 @@ final class DrawerContainerViewController: UIViewController {
 
         contentViewController = newContent
         addChild(newContent)
-        view.addSubview(newContent.view)
+        // 插在 dimmingView 下面，保证遮罩始终在最顶层
+        view.insertSubview(newContent.view, belowSubview: dimmingView)
         newContent.didMove(toParent: self)
-        view.insertSubview(dimmingView, belowSubview: newContent.view)
         layoutContent(open: isOpen)
     }
 
@@ -103,9 +104,19 @@ final class DrawerContainerViewController: UIViewController {
     }
 
     private func layoutContent(open: Bool) {
-        contentViewController.view.frame = CGRect(x: open ? drawerWidth : 0, y: 0,
+        let x = open ? drawerWidth : 0
+        contentViewController.view.frame = CGRect(x: x, y: 0,
                                                   width: view.bounds.width,
                                                   height: view.bounds.height)
+        updateDimmingFrame(contentX: x)
+    }
+
+    /// 遮罩只覆盖 content 被平移后露出的那块矩形（x 从 contentX 到屏幕右边缘），
+    /// 永远不会盖到 [0, contentX) 这段 drawer 自己的区域，避免吞掉抽屉的触摸事件。
+    private func updateDimmingFrame(contentX x: CGFloat) {
+        dimmingView.frame = CGRect(x: x, y: 0,
+                                   width: max(0, view.bounds.width - x),
+                                   height: view.bounds.height)
     }
 
     @objc private func handleEdgePan(_ gesture: UIScreenEdgePanGestureRecognizer) {
@@ -114,6 +125,7 @@ final class DrawerContainerViewController: UIViewController {
             let translation = max(0, min(drawerWidth, gesture.translation(in: view).x))
             contentViewController.view.frame.origin.x = translation
             dimmingView.alpha = translation / drawerWidth
+            updateDimmingFrame(contentX: translation)
         case .ended, .cancelled:
             let shouldOpen = gesture.translation(in: view).x > drawerWidth / 2
                 || gesture.velocity(in: view).x > 500

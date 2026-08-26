@@ -4,6 +4,9 @@ final class ConversationListViewController: UIViewController {
 
     var onSelect: ((String) -> Void)?
     var onOpenSettings: (() -> Void)?
+    /// 某个会话被删除后触发（DB 已经删完）。外层用来判断被删的是不是聊天页正显示的那个会话，
+    /// 是的话就把聊天页切走，避免聊天页停留在一个已经不存在的 conversationId 上。
+    var onDelete: ((String) -> Void)?
 
     private let viewModel: ConversationListViewModel
     private let tableView = UITableView(frame: .zero, style: .plain)
@@ -87,7 +90,13 @@ final class ConversationListViewController: UIViewController {
     private func applySnapshot() {
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
-        snapshot.appendItems(viewModel.items.map(\.id))
+        let ids = viewModel.items.map(\.id)
+        snapshot.appendItems(ids)
+        // NSDiffableDataSourceSnapshot 只按 id（这里就是 String 本身）做 diff：
+        // 重命名不改 id，已经在屏幕上的那一行不会自动重新走 cellProvider,
+        // 标题会停留在旧值直到该行因为别的原因（如滚出屏幕再滚回来）被复用重建。
+        // 对本次快照里的全部 id 显式 reconfigureItems，保证标题/副标题总能刷新。
+        snapshot.reconfigureItems(ids)
         dataSource.apply(snapshot, animatingDifferences: true)
     }
 
@@ -116,6 +125,7 @@ extension ConversationListViewController: UITableViewDelegate {
         let delete = UIContextualAction(style: .destructive, title: "删除") {
             [weak self] _, _, completion in
             self?.viewModel.delete(id: id)
+            self?.onDelete?(id)
             completion(true)
         }
         let rename = UIContextualAction(style: .normal, title: "重命名") {

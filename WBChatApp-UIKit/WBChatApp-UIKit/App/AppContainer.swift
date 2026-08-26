@@ -79,12 +79,17 @@ extension AppContainer {
         let listViewModel = ConversationListViewModel(repository: repository, settings: settings)
         let list = ConversationListViewController(viewModel: listViewModel)
 
-        let chat = makeChatViewController(conversationID: currentOrNewConversationID())
+        // 记录聊天页当前显示的会话 id：删除会话时要判断删的是不是这一个，
+        // 是的话就把聊天页切走，否则僵尸聊天页发消息会因外键约束静默丢库（insertMessage 用了 try?）
+        var currentConversationID = currentOrNewConversationID()
+
+        let chat = makeChatViewController(conversationID: currentConversationID)
         let navigation = UINavigationController(rootViewController: chat)
         let drawer = DrawerContainerViewController(drawer: list, content: navigation)
 
         list.onSelect = { [weak drawer, weak self] conversationID in
             guard let self, let drawer else { return }
+            currentConversationID = conversationID
             let newChat = self.makeChatViewController(conversationID: conversationID)
             newChat.navigationItem.leftBarButtonItem = self.makeMenuItem(drawer: drawer)
             drawer.setContent(UINavigationController(rootViewController: newChat))
@@ -95,6 +100,16 @@ extension AppContainer {
             let settingsViewController = self.makeSettingsViewController()
             drawer.present(UINavigationController(rootViewController: settingsViewController),
                            animated: true)
+        }
+        list.onDelete = { [weak drawer, weak self] deletedID in
+            guard let self, let drawer, deletedID == currentConversationID else { return }
+            // 聊天页正显示的会话被删了：换到最近的一个会话（没有就新建），
+            // 避免聊天页停留在一个 DB 里已经不存在的 conversationId 上
+            let newID = self.currentOrNewConversationID()
+            currentConversationID = newID
+            let newChat = self.makeChatViewController(conversationID: newID)
+            newChat.navigationItem.leftBarButtonItem = self.makeMenuItem(drawer: drawer)
+            drawer.setContent(UINavigationController(rootViewController: newChat))
         }
 
         chat.navigationItem.leftBarButtonItem = makeMenuItem(drawer: drawer)

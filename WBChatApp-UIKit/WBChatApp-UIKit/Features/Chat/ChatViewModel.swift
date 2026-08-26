@@ -101,6 +101,10 @@ final class ChatViewModel {
 
     deinit {
         streamTask?.cancel()
+        // CADisplayLink 强引用 target（DisplayLinkThrottle 自己），构成自环，
+        // 唯有显式 invalidate() 才能打破；否则本 ViewModel 释放后 throttle
+        // 仍会挂在主 RunLoop 上按帧空转，且间接经由 onOutput/onTick 闭包泄漏更多引用。
+        throttle.stop()
     }
 
     // MARK: - 历史
