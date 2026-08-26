@@ -22,14 +22,20 @@ final class ChatViewController: UIViewController {
         return tableView
     }()
 
-    private let inputBar = InputBarView()
+    /// 非 private：语音状态机测试需要通过它触发 onMicTap、读取输入框文字来驱动/校验
+    /// `startVoiceInput` / `finishVoiceInput` 的状态机，而不是复制一份状态机逻辑去测替身。
+    let inputBar = InputBarView()
     private let scrollToBottomButton = ScrollToBottomButton()
 
     // MARK: - 语音输入
 
-    private let transcriber: SpeechTranscribing = SystemSpeechTranscriber()
-    private var recordingOverlay: RecordingOverlayView?
-    private var speechTask: Task<Void, Never>?
+    private let transcriber: SpeechTranscribing
+    /// getter 非 private：测试要靠它判断浮层是否已出现（等异步授权走完）、
+    /// 以及驱动 onConfirm/onCancel；setter 仍是 private，外部不能直接摆浮层。
+    private(set) var recordingOverlay: RecordingOverlayView?
+    /// getter 非 private：测试靠 `await speechTask?.value` 等语音会话彻底收尾，
+    /// 不用瞎猜 yield 次数。同时也是 Critical 2 的同步重入锁——见 `startVoiceInput()`。
+    private(set) var speechTask: Task<Void, Never>?
     private var transcribedText = ""
 
     private var dataSource: UITableViewDiffableDataSource<Int, String>!
@@ -49,14 +55,18 @@ final class ChatViewController: UIViewController {
     private lazy var measuringAssistantCell = AssistantMessageCell(style: .default, reuseIdentifier: nil)
     private lazy var measuringUserCell = UserMessageCell(style: .default, reuseIdentifier: nil)
 
+    /// `transcriber` 带默认值：`AppContainer` 现有的调用点不用改，
+    /// 只有测试需要注入替身时才传参。
     init(viewModel: ChatViewModel,
          renderer: AttributedRenderer,
          cache: AttributedCache,
-         pool: BlockViewPool) {
+         pool: BlockViewPool,
+         transcriber: SpeechTranscribing = SystemSpeechTranscriber()) {
         self.viewModel = viewModel
         self.renderer = renderer
         self.cache = cache
         self.pool = pool
+        self.transcriber = transcriber
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -332,32 +342,56 @@ final class ChatViewController: UIViewController {
 
     // MARK: - 语音输入
 
+    /// Critical 2：同步重入锁。`requestAuthorization()` 即便已经授权过，仍是一次
+    /// 异步调用——await 期间 `recordingOverlay` 还没被赋值，如果只靠它做重入判断，
+    /// 快速双击麦克风会让两个 Task 都通过检查，最终对同一个 `SystemSpeechTranscriber`
+    /// 单例重复 `start()`，在同一条 audio bus 上装两次 tap，直接崩溃。
+    /// `speechTask` 在这里跟 guard 处在同一个同步执行段里赋值，中间没有让出线程的
+    /// 机会，第二次调用一定能看到非 nil 的 `speechTask` 而被挡在门外。
     private func startVoiceInput() {
-        Task { @MainActor in
-            guard await transcriber.requestAuthorization() else {
-                presentPermissionAlert()
-                return
-            }
-            presentRecordingOverlay()
+        guard speechTask == nil else { return }
 
-            do {
-                transcribedText = ""
-                for try await event in try transcriber.start() {
-                    switch event {
-                    case .partial(let text), .final(let text):
-                        transcribedText = text
-                        recordingOverlay?.setText(text)
-                    case .level(let value):
-                        recordingOverlay?.update(level: value)
-                    }
-                }
-            } catch {
-                dismissRecordingOverlay()
-                presentErrorAlert("语音识别失败，请重试")
-                return
-            }
-            finishVoiceInput(confirmed: true)
+        speechTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runVoiceInputSession()
+            self.speechTask = nil
         }
+    }
+
+    private func runVoiceInputSession() async {
+        guard await transcriber.requestAuthorization() else {
+            presentPermissionAlert()
+            return
+        }
+        presentRecordingOverlay()
+        transcribedText = ""
+
+        do {
+            for try await event in try transcriber.start() {
+                switch event {
+                case .partial(let text), .final(let text):
+                    transcribedText = text
+                    recordingOverlay?.setText(text)
+                case .level(let value):
+                    recordingOverlay?.update(level: value)
+                }
+            }
+        } catch {
+            // Critical 1：`recordingOverlay == nil` 说明用户已经点过「完成/取消」，
+            // `finishVoiceInput` 已经跑过一次了——这次抛错只是 `transcriber.stop()`
+            // 引发的收尾噪音（比如识别任务被 cancel），不是真的识别失败，
+            // 不能再弹「语音识别失败，请重试」误导用户。
+            guard recordingOverlay != nil else { return }
+            finishVoiceInput(confirmed: false)
+            presentErrorAlert("语音识别失败，请重试")
+            return
+        }
+
+        // 流以「自然结束」（没有抛错）收尾。这里始终调用 `finishVoiceInput`，
+        // 靠它自己的幂等 guard（`recordingOverlay != nil`）兜底：如果用户已经
+        // 点过「完成」或「取消」，这次调用会直接 no-op；只有用户全程没点按钮、
+        // 识别器自己给出终态结束的情况，才会在这里真正生效，补上唯一一次「确认」。
+        finishVoiceInput(confirmed: true)
     }
 
     private func presentRecordingOverlay() {
@@ -375,8 +409,16 @@ final class ChatViewController: UIViewController {
         Haptics.light()
     }
 
-    /// 识别结果写进输入框而**不直接发送**，用户可以先改再发
+    /// 识别结果写进输入框而**不直接发送**，用户可以先改再发。
+    ///
+    /// Critical 1：幂等保护。`recordingOverlay` 只有在「还没被处理过」时才非 nil，
+    /// 用它做门槛——不管是用户点击「完成/取消」触发的，还是 `runVoiceInputSession`
+    /// 里流自然收尾触发的，两条路径谁先到达都只有第一次真正生效，后到的直接 no-op，
+    /// 不会重复拼接文字，也不会在「取消」之后又被自然收尾的分支误写。
     private func finishVoiceInput(confirmed: Bool) {
+        guard recordingOverlay != nil else { return }
+        // Important 4：取消飞行中的语音 Task，不留一个没有出口的悬挂任务。
+        speechTask?.cancel()
         transcriber.stop()
         dismissRecordingOverlay()
         guard confirmed, !transcribedText.isEmpty else { return }
