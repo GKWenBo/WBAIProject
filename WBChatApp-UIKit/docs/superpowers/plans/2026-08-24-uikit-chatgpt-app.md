@@ -6931,18 +6931,29 @@ extension ChatViewController: UITableViewDelegate {
         return height
     }
 
-    /// 离屏测量：用一个常驻的测量 cell，避免创建临时视图
+    /// 离屏测量用的常驻 cell。
+    ///
+    /// ⚠️ **必须常驻复用，不能每次新建。** 新建的 cell 内部是全新的 `BlockStackView`，
+    /// 它 `configure` 时会从**共享的 `pool`** 借走块视图，而这个临时 cell 用完即弃、
+    /// 借出的视图永远失去持有者，`pool.recycle` 再也收不回来——池子会被逐渐掏空，
+    /// 之后真实可见 cell 复用只能不断新建 `UITextView`，恰好是复用池要规避的开销。
+    /// 每条新助手消息首次测量、以及旋转/分屏触发的全量重测都会加剧这个泄漏。
+    private lazy var measuringAssistantCell = AssistantMessageCell(style: .default, reuseIdentifier: nil)
+    private lazy var measuringUserCell = UserMessageCell(style: .default, reuseIdentifier: nil)
+
+    /// 离屏测量。顺序必须是：prepareForReuse → 设 frame → configure → heightThatFits
     private func measureHeight(for message: ChatViewModel.MessageViewData,
                                width: CGFloat) -> CGFloat {
         guard width > 0 else { return 0 }
         switch message.role {
         case .user, .system:
-            let cell = UserMessageCell(style: .default, reuseIdentifier: nil)
+            let cell = measuringUserCell
             cell.frame = CGRect(x: 0, y: 0, width: width, height: 0)
             cell.configure(text: message.text)
             return cell.heightThatFits(width: width)
         case .assistant:
-            let cell = AssistantMessageCell(style: .default, reuseIdentifier: nil)
+            let cell = measuringAssistantCell
+            cell.prepareForReuse()      // 把上一次借的块视图还给池子
             cell.frame = CGRect(x: 0, y: 0, width: width, height: 0)
             cell.configure(blocks: viewModel.blocks(for: message.id),
                            reasoning: message.reasoning,
