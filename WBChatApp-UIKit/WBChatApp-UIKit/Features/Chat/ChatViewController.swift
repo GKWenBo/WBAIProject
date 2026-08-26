@@ -163,6 +163,10 @@ final class ChatViewController: UIViewController {
                                renderer: self.renderer)
                 cell.onCodeCopy = { _ in Haptics.success() }
                 cell.onLinkTap = { url in UIApplication.shared.open(url) }
+                cell.onRetry = { [weak self] in
+                    self?.autoScroll.didSendMessage()
+                    self?.viewModel.retryLast()
+                }
                 return cell
             }
         }
@@ -511,5 +515,35 @@ extension ChatViewController: UITableViewDelegate {
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         autoScroll.didEndDecelerating(distanceToBottom: distanceToBottom)
+    }
+
+    // MARK: 长按菜单
+
+    func tableView(_ tableView: UITableView,
+                   contextMenuConfigurationForRowAt indexPath: IndexPath,
+                   point: CGPoint) -> UIContextMenuConfiguration? {
+        guard let messageID = dataSource.itemIdentifier(for: indexPath),
+              let message = viewModel.state.messages.first(where: { $0.id == messageID })
+        else { return nil }
+
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            var actions: [UIAction] = [
+                UIAction(title: "复制", image: UIImage(systemName: "doc.on.doc")) { _ in
+                    UIPasteboard.general.string = message.text
+                    Haptics.success()
+                }
+            ]
+            // 只有最后一条助手消息、且当前不在流式中，才允许重新生成
+            let isLastAssistant = message.role == .assistant
+                && self?.viewModel.state.messages.last?.id == messageID
+            if isLastAssistant, self?.viewModel.state.isStreaming == false {
+                actions.append(UIAction(title: "重新生成",
+                                        image: UIImage(systemName: "arrow.clockwise")) { _ in
+                    self?.autoScroll.didSendMessage()
+                    self?.viewModel.retryLast()
+                })
+            }
+            return UIMenu(children: actions)
+        }
     }
 }

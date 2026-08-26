@@ -29,6 +29,19 @@ final class AssistantMessageCell: UITableViewCell {
 
     var onLinkTap: ((URL) -> Void)?
     var onCodeCopy: ((String) -> Void)?
+    /// 生成失败或被用户停止时，点击「重新生成」按钮触发
+    var onRetry: (() -> Void)?
+
+    private lazy var retryButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setTitle("重新生成", for: .normal)
+        button.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
+        button.accessibilityIdentifier = "message.retry"
+        button.isHidden = true
+        button.addTarget(self, action: #selector(handleRetry), for: .touchUpInside)
+        contentView.addSubview(button)
+        return button
+    }()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -36,6 +49,10 @@ final class AssistantMessageCell: UITableViewCell {
         backgroundColor = .clear
         contentView.addSubview(reasoningView)
         contentView.addSubview(errorLabel)
+    }
+
+    @objc private func handleRetry() {
+        onRetry?()
     }
 
     @available(*, unavailable)
@@ -69,6 +86,9 @@ final class AssistantMessageCell: UITableViewCell {
 
         errorLabel.isHidden = (errorText?.isEmpty ?? true)
         errorLabel.text = errorText
+
+        // 只有失败或被中途停止的消息才展示「重新生成」入口
+        retryButton.isHidden = (status != .failed && status != .stopped)
 
         setNeedsLayout()
     }
@@ -104,6 +124,9 @@ final class AssistantMessageCell: UITableViewCell {
             height += errorLabel.sizeThatFits(CGSize(width: contentWidth,
                                                      height: .greatestFiniteMagnitude)).height + 8
         }
+        if !retryButton.isHidden {
+            height += 32
+        }
         return ceil(height)
     }
 
@@ -130,6 +153,11 @@ final class AssistantMessageCell: UITableViewCell {
             errorLabel.frame = CGRect(x: Self.horizontalInset, y: y + 8,
                                       width: contentWidth, height: height)
         }
+        if !retryButton.isHidden {
+            retryButton.frame = CGRect(x: Self.horizontalInset,
+                                       y: contentView.bounds.height - Self.verticalInset - 28,
+                                       width: 100, height: 28)
+        }
     }
 
     /// 供测试断言补丁确实转发到了容器（`BlockStackView.blockCount` 本身已是公开的）
@@ -140,7 +168,9 @@ final class AssistantMessageCell: UITableViewCell {
         stackView?.recycleAll()
         reasoningView.isHidden = true
         errorLabel.isHidden = true
+        retryButton.isHidden = true
         onLinkTap = nil
         onCodeCopy = nil
+        onRetry = nil
     }
 }
