@@ -10,10 +10,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = scene as? UIWindowScene else { return }
         let window = UIWindow(windowScene: windowScene)
 
-        let container = AppContainer.shared
-        let chat = container.makeChatViewController(
-            conversationID: container.currentOrNewConversationID())
-        window.rootViewController = UINavigationController(rootViewController: chat)
+        window.rootViewController = AppContainer.shared.makeRootViewController()
         window.makeKeyAndVisible()
         self.window = window
     }

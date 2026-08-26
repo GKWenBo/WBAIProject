@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import UIKit
 
 /// 依赖组装。整个工程里唯一知道具体实现类型的地方。
 final class AppContainer {
@@ -67,5 +68,46 @@ extension AppContainer {
     @MainActor
     func makeSettingsViewController() -> SettingsViewController {
         SettingsViewController(viewModel: SettingsViewModel(settings: settings))
+    }
+}
+
+extension AppContainer {
+
+    /// 抽屉 + 聊天页的完整根控制器
+    @MainActor
+    func makeRootViewController() -> UIViewController {
+        let listViewModel = ConversationListViewModel(repository: repository, settings: settings)
+        let list = ConversationListViewController(viewModel: listViewModel)
+
+        let chat = makeChatViewController(conversationID: currentOrNewConversationID())
+        let navigation = UINavigationController(rootViewController: chat)
+        let drawer = DrawerContainerViewController(drawer: list, content: navigation)
+
+        list.onSelect = { [weak drawer, weak self] conversationID in
+            guard let self, let drawer else { return }
+            let newChat = self.makeChatViewController(conversationID: conversationID)
+            newChat.navigationItem.leftBarButtonItem = self.makeMenuItem(drawer: drawer)
+            drawer.setContent(UINavigationController(rootViewController: newChat))
+            drawer.closeDrawer()
+        }
+        list.onOpenSettings = { [weak drawer, weak self] in
+            guard let self, let drawer else { return }
+            let settingsViewController = self.makeSettingsViewController()
+            drawer.present(UINavigationController(rootViewController: settingsViewController),
+                           animated: true)
+        }
+
+        chat.navigationItem.leftBarButtonItem = makeMenuItem(drawer: drawer)
+        return drawer
+    }
+
+    @MainActor
+    private func makeMenuItem(drawer: DrawerContainerViewController) -> UIBarButtonItem {
+        let item = UIBarButtonItem(image: UIImage(systemName: "line.3.horizontal"),
+                                   style: .plain,
+                                   target: drawer,
+                                   action: #selector(DrawerContainerViewController.toggleDrawer))
+        item.accessibilityIdentifier = "chat.menu"
+        return item
     }
 }

@@ -1,0 +1,138 @@
+import UIKit
+
+final class ConversationListViewController: UIViewController {
+
+    var onSelect: ((String) -> Void)?
+    var onOpenSettings: (() -> Void)?
+
+    private let viewModel: ConversationListViewModel
+    private let tableView = UITableView(frame: .zero, style: .plain)
+    private var dataSource: UITableViewDiffableDataSource<Int, String>!
+
+    init(viewModel: ConversationListViewModel) {
+        self.viewModel = viewModel
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("不支持 Storyboard") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = Theme.secondaryBackground
+        setUpViews()
+        setUpDataSource()
+
+        viewModel.onItemsChanged = { [weak self] _ in self?.applySnapshot() }
+        viewModel.start()
+        applySnapshot()
+    }
+
+    private func setUpViews() {
+        let header = UIStackView()
+        header.axis = .horizontal
+        header.distribution = .fill
+        header.translatesAutoresizingMaskIntoConstraints = false
+
+        let newButton = UIButton(type: .system)
+        newButton.setTitle("＋ 新对话", for: .normal)
+        newButton.contentHorizontalAlignment = .leading
+        newButton.accessibilityIdentifier = "drawer.newConversation"
+        newButton.addTarget(self, action: #selector(handleNew), for: .touchUpInside)
+
+        let settingsButton = UIButton(type: .system)
+        settingsButton.setImage(UIImage(systemName: "gearshape"), for: .normal)
+        settingsButton.accessibilityIdentifier = "drawer.settings"
+        settingsButton.addTarget(self, action: #selector(handleSettings), for: .touchUpInside)
+
+        header.addArrangedSubview(newButton)
+        header.addArrangedSubview(settingsButton)
+
+        tableView.backgroundColor = .clear
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "conversation")
+        tableView.delegate = self
+        tableView.accessibilityIdentifier = "drawer.tableView"
+
+        view.addSubview(header)
+        view.addSubview(tableView)
+
+        NSLayoutConstraint.activate([
+            header.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            header.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            header.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            header.heightAnchor.constraint(equalToConstant: 44),
+
+            tableView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+    }
+
+    private func setUpDataSource() {
+        dataSource = UITableViewDiffableDataSource<Int, String>(tableView: tableView) {
+            [weak self] tableView, indexPath, id in
+            let cell = tableView.dequeueReusableCell(withIdentifier: "conversation", for: indexPath)
+            let item = self?.viewModel.items.first { $0.id == id }
+            var configuration = cell.defaultContentConfiguration()
+            configuration.text = item?.title
+            configuration.secondaryText = item?.subtitle
+            cell.contentConfiguration = configuration
+            cell.backgroundColor = .clear
+            return cell
+        }
+    }
+
+    private func applySnapshot() {
+        var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
+        snapshot.appendSections([0])
+        snapshot.appendItems(viewModel.items.map(\.id))
+        dataSource.apply(snapshot, animatingDifferences: true)
+    }
+
+    @objc private func handleNew() {
+        onSelect?(viewModel.createConversation())
+    }
+
+    @objc private func handleSettings() {
+        onOpenSettings?()
+    }
+}
+
+extension ConversationListViewController: UITableViewDelegate {
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        guard let id = dataSource.itemIdentifier(for: indexPath) else { return }
+        onSelect?(id)
+    }
+
+    func tableView(_ tableView: UITableView,
+                   trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath)
+    -> UISwipeActionsConfiguration? {
+        guard let id = dataSource.itemIdentifier(for: indexPath) else { return nil }
+
+        let delete = UIContextualAction(style: .destructive, title: "删除") {
+            [weak self] _, _, completion in
+            self?.viewModel.delete(id: id)
+            completion(true)
+        }
+        let rename = UIContextualAction(style: .normal, title: "重命名") {
+            [weak self] _, _, completion in
+            self?.presentRenameAlert(for: id)
+            completion(true)
+        }
+        return UISwipeActionsConfiguration(actions: [delete, rename])
+    }
+
+    private func presentRenameAlert(for id: String) {
+        let alert = UIAlertController(title: "重命名会话", message: nil, preferredStyle: .alert)
+        alert.addTextField { $0.text = self.viewModel.items.first { $0.id == id }?.title }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "确定", style: .default) { [weak self] _ in
+            self?.viewModel.rename(id: id, to: alert.textFields?.first?.text ?? "")
+        })
+        present(alert, animated: true)
+    }
+}
