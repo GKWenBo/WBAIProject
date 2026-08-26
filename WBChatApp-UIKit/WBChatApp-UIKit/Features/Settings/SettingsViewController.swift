@@ -67,8 +67,7 @@ final class SettingsViewController: UITableViewController {
         case .model:         presentModelPicker()
         case .baseURL:       presentTextInput(title: "接口地址", value: viewModel.baseURLText) {
                                  self.viewModel.baseURLText = $0 }
-        case .apiKey:        presentTextInput(title: "API Key", value: "", isSecure: true) {
-                                 self.viewModel.apiKey = $0 }
+        case .apiKey:        presentAPIKeyInput()
         case .systemPrompt:  presentTextInput(title: "系统提示词", value: viewModel.systemPrompt) {
                                  self.viewModel.systemPrompt = $0 }
         case .testConnection: runConnectionTest()
@@ -116,28 +115,70 @@ final class SettingsViewController: UITableViewController {
         present(alert, animated: true)
     }
 
+    /// API Key 出于安全考虑不明文回显，输入框初值必须留空。
+    /// 但这也意味着「什么都不输入直接确定」不能等同于「清空」，
+    /// 否则用户误触一下就会把已保存的真实 Key 静默删掉。
+    /// 空输入按「不修改」处理；清空走单独的「清除 Key」按钮，做成有意为之的操作。
+    private func presentAPIKeyInput() {
+        let alert = UIAlertController(title: "API Key",
+                                      message: "留空点击确定表示不修改现有 Key",
+                                      preferredStyle: .alert)
+        alert.addTextField {
+            $0.text = ""
+            $0.isSecureTextEntry = true
+            $0.autocapitalizationType = .none
+            $0.autocorrectionType = .no
+        }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "清除 Key", style: .destructive) { _ in
+            self.viewModel.clearAPIKey()
+        })
+        alert.addAction(UIAlertAction(title: "确定", style: .default) { _ in
+            self.viewModel.updateAPIKeyIfProvided(alert.textFields?.first?.text ?? "")
+        })
+        present(alert, animated: true)
+    }
+
     private func runConnectionTest() {
+        // 有意先 save() 再测：这是「边填边存」的取舍——测试即视为用户认可当前填写内容，
+        // 顺带把 provider/model/baseURL/apiKey 落盘，不必等用户再点一次「完成」。
         viewModel.save()
         let progress = UIAlertController(title: "正在测试…", message: nil, preferredStyle: .alert)
-        present(progress, animated: true)
-
-        Task {
-            let result = await viewModel.testConnection()
-            progress.dismiss(animated: true) {
-                let message: String
-                switch result {
-                case .success:            message = "连接成功"
-                case .failure(let error): message = error.userMessage
+        // present 的转场动画完成前不能起 Task：如果 testConnection() 走的是几乎不挂起的
+        // 快速失败路径（Key 为空 / URL 非法），dismiss 可能抢在 present 动画跑完前调用，
+        // 触发 UIKit 「正在 present/dismiss 时又 present/dismiss」的警告，
+        // 某些系统版本上这次过早的 dismiss 会被直接丢弃，导致「正在测试…」弹窗卡死不消失。
+        // 把 Task 挪到 present 的 completion 里，保证严格串行。
+        present(progress, animated: true) {
+            Task {
+                let result = await self.viewModel.testConnection()
+                progress.dismiss(animated: true) {
+                    let message: String
+                    switch result {
+                    case .success:            message = "连接成功"
+                    case .failure(let error): message = error.userMessage
+                    }
+                    let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "好", style: .default))
+                    self.present(alert, animated: true)
                 }
-                let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "好", style: .default))
-                self.present(alert, animated: true)
             }
         }
     }
 
     @objc private func handleDone() {
-        viewModel.save()
+        guard viewModel.save() else {
+            presentInvalidBaseURLAlert()
+            return
+        }
         dismiss(animated: true)
+    }
+
+    private func presentInvalidBaseURLAlert() {
+        let alert = UIAlertController(title: nil,
+                                      message: "接口地址格式不正确，请检查后重试",
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "好", style: .default))
+        present(alert, animated: true)
     }
 }

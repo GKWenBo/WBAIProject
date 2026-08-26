@@ -11,9 +11,11 @@ final class AppSettings {
     }
 
     private let defaults: UserDefaults
+    private let keychain: KeychainStoring
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, keychain: KeychainStoring = KeychainStore.shared) {
         self.defaults = defaults
+        self.keychain = keychain
     }
 
     var provider: ProviderKind {
@@ -42,14 +44,20 @@ final class AppSettings {
     }
 
     var apiKey: String {
-        get { KeychainStore.read(KeychainStore.key(for: provider)) ?? "" }
+        get { apiKey(for: provider) }
+    }
+
+    /// 读取指定服务商的 Key，供切换服务商时预览目标服务商已保存的 Key，
+    /// 不依赖当前已持久化的 provider。
+    func apiKey(for provider: ProviderKind) -> String {
+        keychain.read(KeychainStore.key(for: provider)) ?? ""
     }
 
     func setAPIKey(_ key: String) throws {
         if key.isEmpty {
-            try KeychainStore.delete(KeychainStore.key(for: provider))
+            try keychain.delete(KeychainStore.key(for: provider))
         } else {
-            try KeychainStore.save(key, for: KeychainStore.key(for: provider))
+            try keychain.save(key, for: KeychainStore.key(for: provider))
         }
     }
 

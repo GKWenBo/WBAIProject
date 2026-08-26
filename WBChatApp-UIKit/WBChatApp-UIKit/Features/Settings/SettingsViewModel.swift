@@ -7,21 +7,32 @@ final class SettingsViewModel {
 
     private let settings: AppSettings
 
+    /// 切换服务商时会级联修改 model / baseURLText / apiKey，
+    /// 这期间抑制各自的 onChange，结尾只统一发一次，避免连续 reload。
+    private var isBatchingProviderSwitch = false
+
     var provider: ProviderKind {
         didSet {
             guard provider != oldValue else { return }
             // 换服务商时模型与地址都得跟着换，否则会拿 A 家的模型名去请求 B 家
+            isBatchingProviderSwitch = true
             model = provider.defaultModel
             baseURLText = provider.defaultBaseURL.absoluteString
-            apiKey = KeychainStore.read(KeychainStore.key(for: provider)) ?? ""
+            apiKey = settings.apiKey(for: provider)
+            isBatchingProviderSwitch = false
             onChange?()
         }
     }
 
-    var model: String { didSet { if model != oldValue { onChange?() } } }
-    var baseURLText: String { didSet { if baseURLText != oldValue { onChange?() } } }
-    var apiKey: String { didSet { if apiKey != oldValue { onChange?() } } }
-    var systemPrompt: String { didSet { if systemPrompt != oldValue { onChange?() } } }
+    var model: String { didSet { if model != oldValue { notifyChange() } } }
+    var baseURLText: String { didSet { if baseURLText != oldValue { notifyChange() } } }
+    var apiKey: String { didSet { if apiKey != oldValue { notifyChange() } } }
+    var systemPrompt: String { didSet { if systemPrompt != oldValue { notifyChange() } } }
+
+    private func notifyChange() {
+        guard !isBatchingProviderSwitch else { return }
+        onChange?()
+    }
 
     var availableModels: [String] { provider.availableModels }
 
@@ -41,12 +52,29 @@ final class SettingsViewModel {
         self.systemPrompt = settings.systemPrompt
     }
 
-    func save() {
+    /// 输入框留空表示“不修改”，避免用户误触空输入把已保存的真实 Key 清空。
+    /// 真要清空，需通过 clearAPIKey() 显式操作。
+    func updateAPIKeyIfProvided(_ input: String) {
+        guard !input.isEmpty else { return }
+        apiKey = input
+    }
+
+    /// 显式清空 API Key，对应 UI 上的「清除 Key」操作。
+    func clearAPIKey() {
+        apiKey = ""
+    }
+
+    /// 保存所有设置。baseURL 格式非法时不落盘（保留旧值），并返回 false 告知调用方保存失败。
+    @discardableResult
+    func save() -> Bool {
         settings.provider = provider
         settings.model = model
-        if let url = URL(string: baseURLText) { settings.baseURL = url }
         settings.systemPrompt = systemPrompt
         try? settings.setAPIKey(apiKey)
+
+        guard let url = URL(string: baseURLText) else { return false }
+        settings.baseURL = url
+        return true
     }
 
     /// 发一条极短的请求验证 Key 与地址是否可用

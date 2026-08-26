@@ -1,8 +1,22 @@
 import Foundation
 import Security
 
+/// Keychain 读写的协议抽象，让上层（AppSettings）不必直接依赖全局单例，
+/// 测试也能换一个内存实现，避免碰到生产 Keychain 槽位。
+protocol KeychainStoring {
+    func save(_ value: String, for key: String) throws
+    func read(_ key: String) -> String?
+    func delete(_ key: String) throws
+}
+
 /// API Key 只落 Keychain，绝不进 UserDefaults。
-enum KeychainStore {
+enum KeychainStore: KeychainStoring {
+
+    /// 仅用于承载协议实例方法的占位 case，本身不带任何数据。
+    case instance
+
+    /// 生产代码应通过这个实例访问，而不是直接调静态方法。
+    static let shared: KeychainStoring = KeychainStore.instance
 
     enum KeychainError: Error {
         case unexpectedStatus(OSStatus)
@@ -65,4 +79,10 @@ enum KeychainStore {
     static func key(for provider: ProviderKind) -> String {
         "apiKey.\(provider.rawValue)"
     }
+
+    // MARK: - KeychainStoring：转发到静态实现，保持生产逻辑单一来源
+
+    func save(_ value: String, for key: String) throws { try Self.save(value, for: key) }
+    func read(_ key: String) -> String? { Self.read(key) }
+    func delete(_ key: String) throws { try Self.delete(key) }
 }
