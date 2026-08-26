@@ -7226,9 +7226,16 @@ final class ConversationListViewModel {
     /// 用 ValueObservation 订阅，数据库一变列表自动刷新
     func start() {
         reload()
-        observation = repository.observeConversations { [weak self] records in
-            self?.items = records.map(Self.item(from:))
-        }
+        // onError 不能吞：GRDB 的语义是它一旦触发观察即终止、不自动恢复，
+        // 吞掉会让会话列表永久静默停止刷新且无任何诊断信号。
+        // 返回的 cancellable 必须被持有，否则 ARC 释放时观察立即取消。
+        observation = repository.observeConversations(
+            onError: { error in
+                print("[ConversationListViewModel] 会话列表观察出错，已终止: \(error)")
+            },
+            onChange: { [weak self] records in
+                self?.items = records.map(Self.item(from:))
+            })
     }
 
     @discardableResult
@@ -7489,7 +7496,8 @@ final class DrawerContainerViewController: UIViewController {
         layoutContent(open: isOpen)
     }
 
-    func toggleDrawer() {
+    /// 必须标 @objc：AppContainer.makeMenuItem 用 #selector 引用它
+    @objc func toggleDrawer() {
         setDrawer(open: !isOpen, animated: true)
     }
 
