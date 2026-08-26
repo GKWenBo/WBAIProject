@@ -7627,6 +7627,22 @@ git add WBChatApp-UIKit WBChatApp-UIKitTests/ConversationListViewModelTests.swif
     - `func save()`、`func testConnection() async -> Result<Void, ChatError>`
   - `final class SettingsViewController: UITableViewController`
 
+  > **实施中根据审查加固后的实际接口，与上面的草案有出入，以这里为准：**
+  > - `protocol KeychainStoring { func save/read/delete }`，`KeychainStore` 实现它并暴露 `static let shared`；
+  >   `AppSettings(defaults:keychain:)` 两个参数都带默认值（因此 `AppContainer` 无需改动）。
+  >   不这么做的话，测试与生产共享同一个 Keychain 槽位——只要有人写成
+  >   「`viewModel.apiKey = "假Key"` 后 `save()`」就会真的覆盖用户的生产 Key。
+  > - `save()` 改为 `@discardableResult func save() -> Bool`，baseURL 非法时不落盘并返回 false，
+  >   调用方据此弹提示且不 dismiss。原写法 `if let url = URL(string:)` 会静默跳过，
+  >   用户填错地址后以为改成功了。
+  > - API Key 的输入走 `updateAPIKeyIfProvided(_:)`（**空输入表示不修改**）与显式的 `clearAPIKey()`。
+  >   原写法初值传空串又直接赋值，用户点开 Key 行不输入直接确定再点完成，
+  >   已保存的真实 Key 会被静默删除。
+  > - `provider` 切换期间用 `isBatchingProviderSwitch` 抑制子字段的 `onChange`，结尾统一发一次。
+  >   原写法一次切换会发 3~4 次回调，而 VC 侧的 `onChange` 是 `tableView.reloadData()`。
+  > - `runConnectionTest` 的 `Task { }` 必须放进 `present(progress, animated: true) { }` 的
+  >   completion 里，否则快速失败路径下 dismiss 会赶在 present 转场结束前发出，弹窗可能卡住不消失。
+
 - [ ] **Step 1: 写失败测试**
 
 创建 `WBChatApp-UIKitTests/SettingsViewModelTests.swift`：
