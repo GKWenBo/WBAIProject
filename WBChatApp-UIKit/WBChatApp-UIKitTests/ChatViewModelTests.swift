@@ -476,6 +476,49 @@ struct ChatViewModelTests {
         #expect(patchIndices.allSatisfy { $0 > resetIndex }, "所有 blocksPatched 都应排在 blocksReset 之后")
     }
 
+    /// Important 3：`state.messages[...].text` 流式期间恒为空（只在 finishStream
+    /// 落库时才回写），长按菜单「复制」如果直接读 message.text 会拿到空字符串。
+    /// `displayText(for:)` 在命中当前正在流式的这条消息时应回退到 accumulatedText。
+    @Test("流式期间 displayText 返回累积中的文本，而不是空字符串")
+    func displayTextDuringStreamingReturnsAccumulatedText() async throws {
+        let (viewModel, throttle, _, _, providerBox) = try makeViewModel(
+            chunks: [.textDelta("正在生成的内容"), .textDelta("续"), .done(finishReason: "stop")])
+        viewModel.send("hi")
+        let provider = try #require(providerBox.current)
+
+        await provider.deliverNext()
+        throttle.fire()
+
+        let assistantID = try #require(viewModel.state.messages.last?.id)
+        #expect(viewModel.state.messages.last?.text.isEmpty == true, "流式期间 state.text 应仍是空")
+        #expect(viewModel.displayText(for: assistantID) == "正在生成的内容",
+                "displayText 应返回累积文本而不是空字符串")
+
+        await provider.deliverNext()
+        throttle.fire()
+        #expect(viewModel.displayText(for: assistantID) == "正在生成的内容续")
+
+        await provider.finish()
+        await waitForStreamEnd(viewModel)
+    }
+
+    @Test("流结束后 displayText 与落库的 text 一致")
+    func displayTextAfterFinishMatchesText() async throws {
+        let (viewModel, throttle, _, _, providerBox) = try makeViewModel(
+            chunks: [.textDelta("完整回复"), .done(finishReason: "stop")])
+        viewModel.send("hi")
+        let provider = try #require(providerBox.current)
+
+        await provider.deliverNext()
+        throttle.fire()
+        await provider.finish()
+        await waitForStreamEnd(viewModel)
+
+        let assistantID = try #require(viewModel.state.messages.last?.id)
+        #expect(viewModel.displayText(for: assistantID) == "完整回复")
+        #expect(viewModel.displayText(for: assistantID) == viewModel.state.messages.last?.text)
+    }
+
     /// send() 一次调用会插入两条消息并进入流式态，这些字段赋值应合并成一次
     /// state 提交，避免下游对同一个逻辑动作应用多次快照/动画
     @Test("send 一次调用只触发一次 stateChanged")

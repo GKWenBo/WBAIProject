@@ -163,9 +163,13 @@ final class ChatViewController: UIViewController {
                                renderer: self.renderer)
                 cell.onCodeCopy = { _ in Haptics.success() }
                 cell.onLinkTap = { url in UIApplication.shared.open(url) }
+                // Critical 1：闭包在这里按当前这一行的 message.id 捕获,
+                // 转发前交给 handleRetryTapped 用点击那一刻最新的 state 复核一遍,
+                // 不能无脑调 retryLast()——它内部永远只操作 state.messages.last,
+                // 如果按钮属于一条已经不是最后一条的助手消息(cell 复用/滚动残留),
+                // 会把点 A 的按钮误重试成当前最后一条 B。
                 cell.onRetry = { [weak self] in
-                    self?.autoScroll.didSendMessage()
-                    self?.viewModel.retryLast()
+                    self?.handleRetryTapped(messageID: message.id)
                 }
                 return cell
             }
@@ -310,6 +314,18 @@ final class ChatViewController: UIViewController {
 
     private func indexPath(for messageID: String) -> IndexPath? {
         dataSource.indexPath(for: messageID)
+    }
+
+    /// Critical 1：`AssistantMessageCell.onRetry` 只是「这颗按钮被点了」的信号,
+    /// 不代表点它的这条消息现在还是最后一条助手消息——cell 可能残留着一条
+    /// 已经不是最后一条的失败消息的按钮。真正转发给 `retryLast()` 之前,
+    /// 必须用点击那一刻最新的 `viewModel.state` 重新核对,标准与长按菜单
+    /// 的 `isLastAssistant` 判断保持一致(见 `contextMenuConfigurationForRowAt`)。
+    private func handleRetryTapped(messageID: String) {
+        guard !viewModel.state.isStreaming,
+              viewModel.state.messages.last?.id == messageID else { return }
+        autoScroll.didSendMessage()
+        viewModel.retryLast()
     }
 
     // MARK: - 贴底
@@ -528,8 +544,13 @@ extension ChatViewController: UITableViewDelegate {
 
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             var actions: [UIAction] = [
-                UIAction(title: "复制", image: UIImage(systemName: "doc.on.doc")) { _ in
-                    UIPasteboard.general.string = message.text
+                // Important 3：流式期间 message.text(= state 里的 text)恒为空——
+                // ChatViewModel 只在 finishStream() 落库时才回写 text,中途增量只进
+                // blocksByMessage,不进 state.messages[...].text。直接用 message.text
+                // 会导致「正在生成的消息」被复制成空字符串。改用 displayText(for:),
+                // 它在命中当前正在流式的这条消息时会回退到 accumulatedText。
+                UIAction(title: "复制", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
+                    UIPasteboard.general.string = self?.viewModel.displayText(for: messageID) ?? message.text
                     Haptics.success()
                 }
             ]

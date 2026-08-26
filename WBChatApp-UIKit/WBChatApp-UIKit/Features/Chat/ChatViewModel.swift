@@ -121,6 +121,19 @@ final class ChatViewModel {
         blocksByMessage[messageID] ?? []
     }
 
+    /// Important 3：给「复制」这类不该看到中途空字符串的场景用的只读方法。
+    /// `state.messages[...].text` 只在 `finishStream()` → `updateMessage()` 才回写,
+    /// 流式期间 `send`/`retryLast` 把它重置为 `""`,中途增量只进 `blocksByMessage`,
+    /// 不进 `state.messages[...].text`。这里命中当前正在流式的那条消息时改用
+    /// `accumulatedText` 兜底——纯读,不写 `state`,不破坏「流式期间不写库」
+    /// 与「stateChanged / blocksPatched 两条通路分开」这两条既有约束。
+    func displayText(for messageID: String) -> String {
+        if messageID == streamingMessageID {
+            return accumulatedText
+        }
+        return state.messages.first(where: { $0.id == messageID })?.text ?? ""
+    }
+
     // MARK: - 发送
 
     func send(_ text: String) {

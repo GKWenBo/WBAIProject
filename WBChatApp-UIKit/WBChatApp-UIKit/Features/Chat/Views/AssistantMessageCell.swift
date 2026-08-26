@@ -102,8 +102,17 @@ final class AssistantMessageCell: UITableViewCell {
     /// `retryLast()` 重新起一轮流之前会先发出 `blocksReset`。
     /// 必须整段清空块视图，否则下一帧到达的补丁会被 `BlockStackView.applyPatch`
     /// 顶部「上一帧未闭合块」特判整段跳过，把新内容 append 在旧的失败内容之后。
+    ///
+    /// Critical 2：这里必须顺带把「重新生成」按钮也立即隐藏。diffable data source
+    /// 对身份不变的行不会重新请求 cell，`configure()` 要等这一轮流
+    /// `streamFinished`/`failed` 触发 `invalidateHeight()` 才会再跑一次；
+    /// 如果只清空块视图不隐藏按钮，新一轮流式期间按钮会一直留在屏幕上——
+    /// 可点但点了被 `retryLast()` 内部的 `guard !state.isStreaming` 静默吞掉，
+    /// 而且离屏测量此时已经按 `.streaming` 算出更矮的行高，`layoutSubviews`
+    /// 却还在按旧的 `retryButton.isHidden == false` 摆放这个按钮，会压在新内容上。
     func resetBlocks() {
         stackView?.setBlocks([])
+        retryButton.isHidden = true
         setNeedsLayout()
     }
 
