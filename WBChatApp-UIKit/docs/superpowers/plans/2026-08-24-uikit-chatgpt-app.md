@@ -6783,6 +6783,11 @@ final class ChatViewController: UIViewController {
                 self.inputBar.setStreaming(state.isStreaming)
                 self.streamingMessageID = state.isStreaming ? state.messages.last?.id : nil
 
+            case .blocksReset(let messageID):
+                // retry 重新起了一轮流，块视图必须整体清空重建。
+                // 不做的话，applyPatch 会把新内容追加在旧失败内容后面。
+                self.resetBlocks(messageID: messageID)
+
             case .blocksPatched(let messageID, let patch):
                 self.applyPatch(messageID: messageID, patch: patch)
 
@@ -6860,10 +6865,17 @@ final class ChatViewController: UIViewController {
 
     private func invalidateHeight(for messageID: String) {
         heightCache[messageID] = nil
-        guard let indexPath = indexPath(for: messageID) else { return }
-        UIView.performWithoutAnimation {
-            tableView.reloadRows(at: [indexPath], with: .none)
-        }
+        guard dataSource.indexPath(for: messageID) != nil else { return }
+        // ⚠️ 这里**不能**调 tableView.reloadRows。表的 dataSource 是
+        // UITableViewDiffableDataSource，直接对 UITableView 调变更 API 会 100% 抛
+        // NSInternalInconsistencyException：
+        //   "UITableView must be updated via the UITableViewDiffableDataSource APIs...
+        //    please do not call mutation APIs directly on UITableView."
+        // 每次流式结束都会走到这里，也就是每发一条消息必崩。必须走 snapshot 的
+        // reconfigureItems（iOS 15+），它只重新配置 cell、不重建 item 身份。
+        var snapshot = dataSource.snapshot()
+        snapshot.reconfigureItems([messageID])
+        dataSource.apply(snapshot, animatingDifferences: false)
     }
 
     private func indexPath(for messageID: String) -> IndexPath? {
