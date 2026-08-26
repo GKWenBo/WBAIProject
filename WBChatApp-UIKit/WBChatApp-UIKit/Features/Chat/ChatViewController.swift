@@ -34,6 +34,14 @@ final class ChatViewController: UIViewController {
     /// 正在流式的那条消息，用来直接拿 cell 打补丁
     private var streamingMessageID: String?
 
+    /// 离屏测量专用的常驻 cell（助手/用户各一个），不加入视图层级。
+    /// 关键：AssistantMessageCell 内部的 BlockStackView 持有的是共享的 BlockViewPool，
+    /// 如果每次测量都 `AssistantMessageCell(...)` 新建一个，上一次测量借走的块视图
+    /// 永远不会归还给 pool——常驻并在下次 configure 前 `prepareForReuse()`，
+    /// 才能让借出去的块视图在下一次测量前先还回池子，收支平衡。
+    private lazy var measuringAssistantCell = AssistantMessageCell(style: .default, reuseIdentifier: nil)
+    private lazy var measuringUserCell = UserMessageCell(style: .default, reuseIdentifier: nil)
+
     init(viewModel: ChatViewModel,
          renderer: AttributedRenderer,
          cache: AttributedCache,
@@ -242,10 +250,17 @@ final class ChatViewController: UIViewController {
         guard let indexPath = indexPath(for: messageID),
               let cell = tableView.cellForRow(at: indexPath) as? AssistantMessageCell else { return }
         cell.updateReasoning(text)
-        heightCache[messageID] = cell.heightThatFits(width: tableView.bounds.width)
-        UIView.performWithoutAnimation {
-            tableView.beginUpdates()
-            tableView.endUpdates()
+
+        let newHeight = cell.heightThatFits(width: tableView.bounds.width)
+        let oldHeight = heightCache[messageID]
+        heightCache[messageID] = newHeight
+
+        // 与 applyPatch 一致：高度真的变了才惊动 tableView
+        if oldHeight == nil || abs(oldHeight! - newHeight) > 0.5 {
+            UIView.performWithoutAnimation {
+                tableView.beginUpdates()
+                tableView.endUpdates()
+            }
         }
         stickToBottomIfNeeded()
     }
@@ -324,18 +339,21 @@ extension ChatViewController: UITableViewDelegate {
         return height
     }
 
-    /// 离屏测量：用一个常驻的测量 cell，避免创建临时视图
+    /// 离屏测量：复用常驻的测量 cell，避免创建临时视图（也避免污染共享的 BlockViewPool，
+    /// 见 `measuringAssistantCell` 的注释）
     private func measureHeight(for message: ChatViewModel.MessageViewData,
                                width: CGFloat) -> CGFloat {
         guard width > 0 else { return 0 }
         switch message.role {
         case .user, .system:
-            let cell = UserMessageCell(style: .default, reuseIdentifier: nil)
+            let cell = measuringUserCell
             cell.frame = CGRect(x: 0, y: 0, width: width, height: 0)
             cell.configure(text: message.text)
             return cell.heightThatFits(width: width)
         case .assistant:
-            let cell = AssistantMessageCell(style: .default, reuseIdentifier: nil)
+            let cell = measuringAssistantCell
+            // 先把上一次测量借走的块视图还给池子，再借新的
+            cell.prepareForReuse()
             cell.frame = CGRect(x: 0, y: 0, width: width, height: 0)
             cell.configure(blocks: viewModel.blocks(for: message.id),
                            reasoning: message.reasoning,

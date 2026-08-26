@@ -41,4 +41,9 @@ final class BlockViewPool {
         case .divider: return DividerBlockView()
         }
     }
+
+    /// 供测试断言某类型空闲队列的长度，验证「借出去的最终都还回来了」
+    func idleCountForTesting(_ kind: BlockViewKind) -> Int {
+        idle[kind]?.count ?? 0
+    }
 }
