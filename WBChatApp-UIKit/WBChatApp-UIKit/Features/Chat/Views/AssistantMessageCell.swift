@@ -79,6 +79,14 @@ final class AssistantMessageCell: UITableViewCell {
         setNeedsLayout()
     }
 
+    /// `retryLast()` 重新起一轮流之前会先发出 `blocksReset`。
+    /// 必须整段清空块视图，否则下一帧到达的补丁会被 `BlockStackView.applyPatch`
+    /// 顶部「上一帧未闭合块」特判整段跳过，把新内容 append 在旧的失败内容之后。
+    func resetBlocks() {
+        stackView?.setBlocks([])
+        setNeedsLayout()
+    }
+
     func updateReasoning(_ text: String) {
         reasoningView.isHidden = text.isEmpty
         reasoningView.setText(text)
