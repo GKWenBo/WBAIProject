@@ -27,8 +27,8 @@ T(n) = Σ(k=1 to n) O(k) = O(1 + 2 + 3 + ... + n) = O(n(n+1)/2) = O(n²)
 
 任意时刻，一条消息的块序列有且只有一个 open 块（如果流还没结束的话），其余全部 sealed。每帧只需要：
 
-1. 把 sealed 块的渲染结果（`NSAttributedString` 与高度）**从缓存里直接取用**，不重新解析——这部分工作在块闭合的那一刻已经做过一次，且此后永不再做。
-2. 重新解析并测量**唯一的那个 open 块**。
+1. 把 sealed 块的渲染结果（`NSAttributedString` 与高度）**从缓存里直接取用**，不重新解析——这部分工作在块闭合的那一刻已经做过一次；只要渲染宽度不变，此后不再重做（`BlockStackView` 按槽位标脏：只有新固化或仍在追加的那个槽位会被标记为待重算，其余已闭合槽位原样复用上一帧的结果；宽度变化时才整体失效、全部重算）。
+2. 重新解析并测量**唯一的那个 open 块**——它每帧都会被重新测量，不进任何缓存。
 
 设块的平均长度为常数 `b`（由 Markdown 语法结构决定：一个段落、一个列表项、一个代码块……长度不会随消息总长 `n` 无限增长，`b` 与 `n` 无关），则：
 
@@ -157,7 +157,7 @@ flowchart LR
     G -->|否| I["每帧直接 render，不进缓存"]
     H --> J["BlockView（按 BlockViewKind 从 BlockViewPool 借出）"]
     I --> J
-    J --> K["BlockStackView 布局<br/>只重排 open 对应的最后一个视图"]
+    J --> K["BlockStackView 布局<br/>只有 open 槽位的高度会重新测量<br/>（其余已闭合槽位的 frame 仍每帧重排，<br/>但只是按缓存高度做算术定位，不碰 TextKit）"]
 ```
 
 `AttributedRenderer` 刻意只处理**单个块**：swift-markdown 每次解析的输入只有几十到几百字（一个块的长度），而不是整条消息，这是复杂度分析里"块渲染代价与 `n` 无关"的直接体现。代码块完全绕开 swift-markdown——`CodeHighlighter` 做的是自己的线性扫描 tokenize（识别注释/字符串/数字/关键字），既省一次 AST 解析，也便于处理未闭合的代码块（没有结尾围栏时 swift-markdown 的 `CodeBlock` 节点可能无法正确识别，而 `AttributedRenderer.codeText(of:)` 是按行手动剥围栏，天然兼容"还没写完"的输入）。
@@ -187,7 +187,7 @@ final class MarkdownTextBlockView: UIView, BlockView {
 grep -rn "layoutManager\|\.textStorage" WBChatApp-UIKit --include=*.swift
 ```
 
-预期无输出。这个正则是大小写敏感的子串匹配：`textLayoutManager` 里紧跟在 `text` 后面的是大写的 `LayoutManager`，与小写开头的模式串 `layoutManager` 逐字符比较不相等，因此不会被误报命中；`textContentStorage` 同理不会命中 `\.textStorage`（后者还额外要求前面有一个字面量 `.`）。实测本项目对这两个模式的唯一命中是 `MarkdownTextBlockView.swift` 里那条禁令注释本身（注释文字里提到了这两个词），不存在任何真实的属性访问。
+预期只命中一行——`MarkdownTextBlockView.swift` 里那条禁令注释本身（注释文字里直接写了 `layoutManager`/`.textStorage` 这两个词，被自己定的红线正则命中），除此之外不应再有其它输出。这不是正则误报：这个正则是大小写敏感的子串匹配，`textLayoutManager` 里紧跟在 `text` 后面的是大写的 `LayoutManager`，与小写开头的模式串 `layoutManager` 逐字符比较不相等，不会误报命中；`textContentStorage` 同理不会命中 `\.textStorage`（后者还额外要求前面有一个字面量 `.`）。也就是说，实测的这一行命中是真实的子串匹配，只是命中对象是注释文字而非代码里的属性访问，全项目不存在任何真实的 `layoutManager`/`textStorage` 属性访问。
 
 ### 哨兵测试
 
@@ -208,7 +208,14 @@ var usesTextKit2: Bool { textView.textLayoutManager != nil }
 
 流式场景恰恰相反：open 块的内容**每一帧都在变**（哪怕只是追加了几个字符），如果用 `automaticDimension`，每一帧都要让 Auto Layout 引擎重新求解整条约束链——包括所有没有变化的 sealed 块。这与本文第 1 节的复杂度分析目标直接冲突：好不容易把"内容重解析"的代价压到了只有 open 块，如果高度求解仍然是"全量重算"，性能收益就在这一步被吃掉了。
 
-项目改为在 `ChatViewController` 里实现 `UITableViewDelegate.tableView(_:heightForRowAt:)`，自己维护一份按 `messageID` 索引的高度缓存（`heightCache: [String: CGFloat]`），高度来自 `BlockStackView.heightThatFits(width:)`——递归调用每个子块视图的 `heightThatFits(width:)`（`UITextView.sizeThatFits(_:)`，不经过 Auto Layout 约束求解），再求和加上块间距。已闭合块的高度进一步被 `AttributedCache.height(for:width:render:measure:)` 缓存（按 `cacheKey` + 量化后的宽度作为键），意味着一个已经渲染过的块，在同一宽度下的高度**只测量一次**，后续帧直接查表。
+项目改为在 `ChatViewController` 里实现 `UITableViewDelegate.tableView(_:heightForRowAt:)`，自己维护一份按 `messageID` 索引的高度缓存（`heightCache: [String: CGFloat]`），高度来自 `BlockStackView.heightThatFits(width:)`——递归调用每个子块视图的 `heightThatFits(width:)`（`UITextView.sizeThatFits(_:)`，不经过 Auto Layout 约束求解），再求和加上块间距。
+
+这条路径上实际叠着两层缓存，失效粒度各不相同：
+
+1. **`BlockStackView` 自己的槽位缓存**（`cachedHeights: [CGFloat?]`，`ensureHeights` 维护）：与 `blockViews` 一一对应，`nil` 表示待重算。`appendView` 只给新追加的槽位置 `nil`；`updateView`（就地固化上一帧的未闭合块，或未闭合块继续追加文字）只把**它自己那一个槽位**置 `nil`；其余已闭合槽位的缓存值原样保留，不会被批量清空。只有渲染宽度变化（`cachedWidth != width`）时才整体重建整个数组，强制全部槽位重新测量——不同宽度下的高度本就需要重新算，这不是失效，是必要的重算。
+2. **`AttributedCache.height(for:width:render:measure:)`**（按 `cacheKey` + 量化后的宽度作为键的全局缓存，与某个 `BlockStackView` 实例无关，`NSCache` 支撑，能跨 cell 复用命中）：`ensureHeights` 对槽位缓存里为 `nil` 的项调用 `computeHeight`——已闭合块（`block.isSealed`）才会走到这层缓存；唯一的未闭合块永远绕开它，直接调 `view.heightThatFits(width: width)` 每帧重测，不写入任何缓存（它的内容每帧都在变，缓存了也马上作废）。
+
+两层叠加的效果：一个已闭合块的高度，在同一宽度下只会被真正测量一次（此后无论是命中第 1 层的槽位缓存，还是退化到命中第 2 层的全局缓存，都不会再碰 `UITextView`/TextKit）；宽度变化或该块被撤回（流中止）时才会让对应槽位重新计算。
 
 ### `beginUpdates`/`endUpdates` 的代价分析
 

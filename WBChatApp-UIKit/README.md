@@ -12,7 +12,7 @@
 
 - **Deployment Target**：iOS 16.0
 - **开发环境**：Xcode 26.5 / iOS 26.5 SDK（工程 `objectVersion = 77`，启用 `fileSystemSynchronizedGroups`）
-- **语言/并发模型**：Swift 6，`SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated`（Core 层默认非隔离，ViewModel/ViewController/视图类显式标 `@MainActor`）
+- **语言/并发模型**：工程六个 target 的 `SWIFT_VERSION` 均为 `5.0`（Swift 5 语言模式），但开启了 `SWIFT_APPROACHABLE_CONCURRENCY = YES`、`SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES` 等 Swift 6 前瞻特性，以及 `SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated`（Core 层默认非隔离，ViewModel/ViewController/视图类显式标 `@MainActor`）——尚未切到 Swift 6 语言模式
 - **三方依赖**（Swift Package Manager，版本已在 `Package.resolved` 锁定）：
   - [`swift-markdown`](https://github.com/swiftlang/swift-markdown) 0.8.0（传递依赖 `swift-cmark` 0.8.0）
   - [`GRDB.swift`](https://github.com/groue/GRDB.swift) 7.11.1
@@ -47,7 +47,7 @@
 
 ## 测试
 
-单元测试用 [Swift Testing](https://developer.apple.com/documentation/testing)（`import Testing`），UI 测试用 XCTest。当前基线：单元测试 236 条 + UI 冒烟测试 1 条，全绿。
+单元测试用 [Swift Testing](https://developer.apple.com/documentation/testing)（`import Testing`），UI 测试用 XCTest。当前基线：单元测试 248 条 + UI 冒烟测试 1 条，全绿。
 
 全量测试（模拟器目标必须显式带 `OS=26.5`，省略会报 "Unable to find a device matching..."）：
 
@@ -79,9 +79,11 @@ xcrun xcresulttool get test-results summary --path "$RESULT" \
 两条工程红线自查（详见 `doc/00-架构总览.md` 与 `doc/02-Markdown块级增量渲染.md`）：
 
 ```bash
-# TextKit 2 降级扫描：预期无输出
+# TextKit 2 降级扫描：预期只命中一行——MarkdownTextBlockView.swift 里那条禁令注释本身，
+# 不应再有其它输出（细节与自证见 doc/02 §5）
 grep -rn "layoutManager\|\.textStorage" WBChatApp-UIKit --include=*.swift
 
-# ViewModel 纯净性扫描：预期无输出
-grep -l "import UIKit" WBChatApp-UIKit/Features/*/[A-Za-z]*ViewModel.swift
+# ViewModel 纯净性扫描：预期无输出（用 ^import UIKit 锚定行首，避免被
+# ChatViewModel.swift 头部注释里"不 import UIKit"这句话的子串误命中）
+grep -l "^import UIKit" WBChatApp-UIKit/Features/*/[A-Za-z]*ViewModel.swift
 ```
