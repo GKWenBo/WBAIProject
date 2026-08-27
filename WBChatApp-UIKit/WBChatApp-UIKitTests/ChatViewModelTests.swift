@@ -58,13 +58,19 @@ final class GatedProvider: ChatProvider, @unchecked Sendable {
     /// 一度间歇性失败的根因。
     private var requested = 0
 
+    /// 供测试断言：这个 provider 实例收到的最近一次请求。
+    /// 用来验证 C1——设置变更后，`ChatViewModel` 传给 provider 的
+    /// `model`/`system` 是不是新值，而不是 init 时的旧快照。
+    private(set) var lastRequest: ChatRequest?
+
     init(chunks: [StreamChunk], error: Error? = nil) {
         self.chunks = chunks
         self.error = error
     }
 
     func stream(_ request: ChatRequest) -> AsyncThrowingStream<StreamChunk, Error> {
-        AsyncThrowingStream<StreamChunk, Error> { [weak self] in
+        lastRequest = request
+        return AsyncThrowingStream<StreamChunk, Error> { [weak self] in
             try await self?.produce()
         }
     }
@@ -126,7 +132,10 @@ struct ChatViewModelTests {
 
     private func makeViewModel(
         chunks: [StreamChunk],
-        error: Error? = nil
+        error: Error? = nil,
+        requestConfigProvider: @escaping () -> (model: String, systemPrompt: String?) = {
+            (model: "deepseek-chat", systemPrompt: nil)
+        }
     ) throws -> (viewModel: ChatViewModel, throttle: ManualThrottle,
                  repository: GRDBChatRepository, conversationID: String,
                  providerBox: ProviderBox) {
@@ -142,8 +151,7 @@ struct ChatViewModelTests {
                                           providerBox.current = provider
                                           return provider
                                       },
-                                      systemPrompt: nil,
-                                      model: "deepseek-chat",
+                                      requestConfigProvider: requestConfigProvider,
                                       throttle: throttle)
         return (viewModel, throttle, repository, conversation.id, providerBox)
     }
@@ -167,6 +175,43 @@ struct ChatViewModelTests {
         #expect(viewModel.state.messages[1].role == .assistant)
 
         let provider = try #require(providerBox.current)
+        await provider.finish()
+        await waitForStreamEnd(viewModel)
+    }
+
+    @Test("设置变更后下一次 send() 立刻用上新的 model/systemPrompt（C1）")
+    func requestUsesLatestConfigNotInitTimeSnapshot() async throws {
+        // 用一个可变的盒子模拟 AppSettings：ViewModel 构造之后、真正发消息
+        // 之前,「设置页」把它改了。若 ChatViewModel 在 init 时就把 model/
+        // systemPrompt 快照进 `let`,这里读到的会一直是构造时的旧值。
+        final class ConfigBox {
+            var model = "old-model"
+            var systemPrompt: String? = "old-prompt"
+        }
+        let box = ConfigBox()
+
+        let (viewModel, _, _, _, providerBox) = try makeViewModel(
+            chunks: [.done(finishReason: "stop")],
+            requestConfigProvider: { (model: box.model, systemPrompt: box.systemPrompt) })
+
+        // 模拟设置页 dismiss 前完成的修改
+        box.model = "new-model"
+        box.systemPrompt = "new-prompt"
+
+        viewModel.send("hi")
+
+        let provider = try #require(providerBox.current)
+        // `provider.stream(request)` 是在 `startStream` 里起的 `Task { ... }` 内部
+        // 才被调用的,`send()` 同步返回时那个 Task 未必已经被调度器跑到这一行——
+        // 轮询等它把 `lastRequest` 记录下来,而不是假设 Task 已经同步跑完。
+        for _ in 0..<200 {
+            if provider.lastRequest != nil { break }
+            await Task.yield()
+        }
+        #expect(provider.lastRequest?.model == "new-model",
+                "应该现取 requestConfigProvider() 的最新值,而不是 init 时的旧快照")
+        #expect(provider.lastRequest?.system == "new-prompt")
+
         await provider.finish()
         await waitForStreamEnd(viewModel)
     }
@@ -257,8 +302,7 @@ struct ChatViewModelTests {
                 providerBox.current = provider
                 return provider
             },
-            systemPrompt: nil,
-            model: "deepseek-chat",
+            requestConfigProvider: { (model: "deepseek-chat", systemPrompt: nil) },
             throttle: throttle)
 
         viewModel?.send("hi")

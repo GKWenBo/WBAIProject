@@ -31,6 +31,10 @@ final class AssistantMessageCell: UITableViewCell {
     var onCodeCopy: ((String) -> Void)?
     /// 生成失败或被用户停止时，点击「重新生成」按钮触发
     var onRetry: (() -> Void)?
+    /// C2 修复：思考过程折叠区被展开/收起时触发。`ReasoningSectionView.onToggle`
+    /// 本身只负责喊一嗓子「我被点了」，具体「行高要不要重新查询、tableView 要不要
+    /// beginUpdates/endUpdates」是控制器层的事——这里只做转发。
+    var onReasoningToggled: (() -> Void)?
 
     private lazy var retryButton: UIButton = {
         let button = UIButton(type: .system)
@@ -49,6 +53,7 @@ final class AssistantMessageCell: UITableViewCell {
         backgroundColor = .clear
         contentView.addSubview(reasoningView)
         contentView.addSubview(errorLabel)
+        reasoningView.onToggle = { [weak self] in self?.onReasoningToggled?() }
     }
 
     @objc private func handleRetry() {
@@ -172,14 +177,26 @@ final class AssistantMessageCell: UITableViewCell {
     /// 供测试断言补丁确实转发到了容器（`BlockStackView.blockCount` 本身已是公开的）
     var blockCountForTesting: Int { stackView?.blockCount ?? 0 }
 
+    /// 供测试断言：思考过程折叠区当前是否展开
+    var reasoningExpandedForTesting: Bool { reasoningView.isExpandedForTesting }
+
+    /// 供测试直接触发一次「展开/收起」点击,不用真的构造 UITapGestureRecognizer
+    func simulateReasoningToggleForTesting() {
+        reasoningView.simulateToggleForTesting()
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
         stackView?.recycleAll()
         reasoningView.isHidden = true
+        // C2 修复：展开态是 ReasoningSectionView 自己的视图状态，不会因为
+        // isHidden = true 或换绑新消息就自动复位，必须显式收起。
+        reasoningView.collapse()
         errorLabel.isHidden = true
         retryButton.isHidden = true
         onLinkTap = nil
         onCodeCopy = nil
         onRetry = nil
+        onReasoningToggled = nil
     }
 }

@@ -26,6 +26,9 @@ final class ReasoningSectionView: UIView {
 
     var onToggle: (() -> Void)?
 
+    /// 供测试断言展开态
+    var isExpandedForTesting: Bool { isExpanded }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         addSubview(headerButton)
@@ -64,12 +67,28 @@ final class ReasoningSectionView: UIView {
         }
     }
 
+    /// 供测试模拟点击标题栏：`UIButton` 在单测里不便直接触发 `.touchUpInside`
+    func simulateToggleForTesting() {
+        toggle()
+    }
+
     @objc private func toggle() {
         isExpanded.toggle()
         bodyLabel.isHidden = !isExpanded
         updateHeaderTitle()
         setNeedsLayout()
         onToggle?()
+    }
+
+    /// C2 修复：cell 复用到另一条消息前必须调用——展开态是纯视图状态，
+    /// `AssistantMessageCell.prepareForReuse()` 之前没有复位它，导致「上一条
+    /// 消息展开过思考过程」这件事会随 cell 复用泄漏到下一条完全无关的消息上。
+    func collapse() {
+        guard isExpanded else { return }
+        isExpanded = false
+        bodyLabel.isHidden = true
+        updateHeaderTitle()
+        setNeedsLayout()
     }
 
     private func updateHeaderTitle() {

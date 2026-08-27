@@ -101,7 +101,14 @@ final class ConversationListViewController: UIViewController {
     }
 
     @objc private func handleNew() {
-        onSelect?(viewModel.createConversation())
+        // `createConversation()` 建库失败时会返回 ""（内部 `try?` 吞掉了错误）。
+        // 不判空的话，"" 会被当成一个会话 id 传给 `onSelect`，下游拿它建出的
+        // `ChatViewController` 绑定在一个数据库里根本不存在的 conversationId 上——
+        // 发消息时 `insertMessage` 一样是 `try?`，外键约束不满足会静默失败，
+        // 用户点发送后消息直接消失，且没有任何报错。
+        let id = viewModel.createConversation()
+        guard !id.isEmpty else { return }
+        onSelect?(id)
     }
 
     @objc private func handleSettings() {

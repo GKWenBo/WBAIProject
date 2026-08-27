@@ -33,7 +33,7 @@ struct MessageActionTests {
                                           providerBox.current = provider
                                           return provider
                                       },
-                                      systemPrompt: nil, model: "m", throttle: throttle)
+                                      requestConfigProvider: { (model: "m", systemPrompt: nil) }, throttle: throttle)
         return (viewModel, throttle, providerBox)
     }
 
@@ -138,7 +138,7 @@ struct MessageActionTests {
         let viewModel = ChatViewModel(conversationID: conversation.id,
                                       repository: repository,
                                       providerFactory: { GatedProvider(chunks: []) },
-                                      systemPrompt: nil, model: "m", throttle: throttle)
+                                      requestConfigProvider: { (model: "m", systemPrompt: nil) }, throttle: throttle)
         viewModel.loadHistory()
         #expect(viewModel.state.messages.last?.role == .user)
 

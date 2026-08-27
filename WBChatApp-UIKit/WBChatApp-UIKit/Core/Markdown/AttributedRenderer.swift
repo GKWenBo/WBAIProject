@@ -122,7 +122,9 @@ final class AttributedRenderer {
     }
 
     private func renderTable(_ table: Markdown.Table) -> NSAttributedString {
-        // 表格由 TableBlockView 负责画格线，这里只把单元格文本按行列拼出来兜底
+        // 目前没有专门画表格格线的视图（不存在 TableBlockView）：表格实际是渲染成
+        // 制表符拼接的纯文本，每行一个 NSAttributedString 行，靠 "\t" 分隔单元格，
+        // 落到普通的 MarkdownTextBlockView 里显示，没有格线/对齐等表格排版。
         let result = NSMutableAttributedString()
         func appendRow(_ cells: [String]) {
             if result.length > 0 { result.append(NSAttributedString(string: "\n")) }
@@ -198,10 +200,6 @@ final class AttributedRenderer {
         let result = NSMutableAttributedString()
         for child in markup.children {
             result.append(renderInline(child, base: base))
-        }
-        // 叶子节点没有子节点时，退回它的纯文本
-        if result.length == 0, let text = markup as? Markdown.Text {
-            return NSAttributedString(string: text.string, attributes: base)
         }
         return result
     }

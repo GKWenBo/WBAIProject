@@ -40,6 +40,11 @@ final class MarkdownTextBlockView: UIView, BlockView {
     /// 供测试断言：确认没有意外退回 TextKit 1
     var usesTextKit2: Bool { textView.textLayoutManager != nil }
 
+    /// 供测试断言：`heightThatFits` 被实际调用（触发 TextKit 测量）的次数。
+    /// 用来验证 `AttributedCache`/`BlockStackView` 的高度缓存确实生效——
+    /// 已闭合块的视图在缓存命中时不应该再走到这里。
+    private(set) var heightMeasureCountForTesting = 0
+
     /// 供测试断言当前内容
     var currentTextForTesting: String { textView.attributedText?.string ?? "" }
 
@@ -89,6 +94,7 @@ final class MarkdownTextBlockView: UIView, BlockView {
     }
 
     func heightThatFits(width: CGFloat) -> CGFloat {
+        heightMeasureCountForTesting += 1
         let inset = quoteBar.isHidden ? 0 : MarkdownTheme.default.quoteBarWidth + 8
         let available = max(1, width - inset)
         let size = textView.sizeThatFits(CGSize(width: available,

@@ -115,8 +115,7 @@ struct ChatViewControllerVoiceInputTests {
         let viewModel = ChatViewModel(conversationID: conversation.id,
                                       repository: repository,
                                       providerFactory: { MockProvider() },
-                                      systemPrompt: nil,
-                                      model: "deepseek-chat",
+                                      requestConfigProvider: { (model: "deepseek-chat", systemPrompt: nil) },
                                       throttle: ManualThrottle())
         let vc = ChatViewController(viewModel: viewModel,
                                     renderer: AttributedRenderer(),

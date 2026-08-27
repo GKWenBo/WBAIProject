@@ -28,7 +28,13 @@ struct AnthropicAdapter: ProviderAdapter {
     func makeMapper() -> SSEChunkMapper { AnthropicChunkMapper() }
 }
 
-/// Anthropic 的增量类型要靠上下文判断，因此 mapper 需要持有状态。
+/// mapper 需要持有状态，但不是为了判断增量类型——文本增量还是思考增量，
+/// 每个 `content_block_delta` 事件自己的 `delta.type`（`text_delta` /
+/// `thinking_delta`）就足够区分，不依赖前面出现过的 `content_block_start`
+/// （`AnthropicDTO.ContentBlockStart` 目前定义了但没有任何地方解码它）。
+/// 真正需要跨事件累积的是 token 用量：`message_start` 给出 `input_tokens`，
+/// `message_delta` 陆续给出 `output_tokens` 与 `stop_reason`，两者分属不同
+/// 事件，必须存下来才能在每次 `message_delta` 时拼出完整的 `TokenUsage`。
 struct AnthropicChunkMapper: SSEChunkMapper {
 
     private var inputTokens: Int = 0

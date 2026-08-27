@@ -25,7 +25,12 @@ final class BlockStackView: UIView {
     private var hasOpenBlock = false
 
     private var cachedWidth: CGFloat = 0
-    private var cachedHeights: [CGFloat] = []
+    /// 与 `blockViews` 一一对应；`nil` 表示该槽位待重算。
+    ///
+    /// 已闭合块的槽位一旦算出就不再被清空——这是 `AttributedCache.height`
+    /// 那份「已闭合块只测量一次」承诺在视图层的落地。真正会被清空的只有
+    /// 当前未闭合块所在的槽位（在 `updateView` 里），以及宽度变化时的整体重建。
+    private var cachedHeights: [CGFloat?] = []
 
     var blockCount: Int { blockViews.count }
 
@@ -52,7 +57,8 @@ final class BlockStackView: UIView {
             appendView(for: block)
         }
         hasOpenBlock = newBlocks.last.map { !$0.isSealed } ?? false
-        invalidateHeights()
+        // 整条消息换绑（cell 复用），旧的高度缓存对新内容没有意义，整体重建。
+        resetHeightCache()
     }
 
     // MARK: - 增量更新
@@ -79,6 +85,7 @@ final class BlockStackView: UIView {
                 pool.recycle(blockViews[blockViews.count - 1])
                 blockViews.removeLast()
                 blocks.removeLast()
+                if !cachedHeights.isEmpty { cachedHeights.removeLast() }
                 hasOpenBlock = false
             } else if let first = sealedQueue.first, first.ordinal != blocks[blocks.count - 1].ordinal {
                 // 契约外输入：本帧确实有「新闭合块」，但它的 ordinal 对不上上一帧的
@@ -111,8 +118,8 @@ final class BlockStackView: UIView {
                 hasOpenBlock = true
             }
         }
-
-        invalidateHeights()
+        // 注意：这里不再无条件清空整个 cachedHeights——appendView/updateView/
+        // 撤回分支已经各自把受影响槽位标记为待重算，已闭合块的槽位原样保留。
     }
 
     func recycleAll() {
@@ -120,7 +127,7 @@ final class BlockStackView: UIView {
         blockViews.removeAll()
         blocks.removeAll()
         hasOpenBlock = false
-        invalidateHeights()
+        resetHeightCache()
     }
 
     // MARK: - 布局与高度
@@ -128,7 +135,8 @@ final class BlockStackView: UIView {
     func heightThatFits(width: CGFloat) -> CGFloat {
         ensureHeights(width: width)
         guard !cachedHeights.isEmpty else { return 0 }
-        return cachedHeights.reduce(0, +) + spacing * CGFloat(cachedHeights.count - 1)
+        let heights = cachedHeights.map { $0 ?? 0 }
+        return heights.reduce(0, +) + spacing * CGFloat(heights.count - 1)
     }
 
     override func layoutSubviews() {
@@ -136,7 +144,7 @@ final class BlockStackView: UIView {
         ensureHeights(width: bounds.width)
         var y: CGFloat = 0
         for (index, view) in blockViews.enumerated() {
-            let height = cachedHeights.indices.contains(index) ? cachedHeights[index] : 0
+            let height = cachedHeights.indices.contains(index) ? (cachedHeights[index] ?? 0) : 0
             view.frame = CGRect(x: 0, y: y, width: bounds.width, height: height)
             y += height + spacing
         }
@@ -159,6 +167,13 @@ final class BlockStackView: UIView {
         addSubview(view)
         blockViews.append(view)
         blocks.append(block)
+        // 新槽位还没算过高度；只在 cachedHeights 已经和旧的 blockViews 对齐时才
+        // 追加占位，否则等下一次 ensureHeights 按 blockViews.count 统一重建。
+        if cachedHeights.count == blockViews.count - 1 {
+            cachedHeights.append(nil)
+        }
+        setNeedsLayout()
+        invalidateIntrinsicContentSize()
     }
 
     private func updateView(at index: Int, with block: MarkdownBlock) {
@@ -175,6 +190,13 @@ final class BlockStackView: UIView {
         }
         configure(blockViews[index], with: block)
         blocks[index] = block
+        // 这个槽位的内容变了（原地固化闭合块，或未闭合块继续追加文字），
+        // 唯有它需要重新测量——其余已闭合槽位保持原样，这正是 I1 要修的性能点。
+        if cachedHeights.indices.contains(index) {
+            cachedHeights[index] = nil
+        }
+        setNeedsLayout()
+        invalidateIntrinsicContentSize()
     }
 
     private func configure(_ view: any BlockView, with block: MarkdownBlock) {
@@ -191,17 +213,49 @@ final class BlockStackView: UIView {
         }
     }
 
-    private func invalidateHeights() {
+    /// 整体重建高度缓存：仅用于「换绑一条全新消息」（`setBlocks`/`recycleAll`）。
+    /// 流式增量路径（`applyPatch`）绝不调用这个方法——它会连已闭合块的高度也
+    /// 一并清空，正是 I1 要修的那个 O(n²) 形状。
+    private func resetHeightCache() {
         cachedWidth = 0
         cachedHeights.removeAll()
         setNeedsLayout()
         invalidateIntrinsicContentSize()
     }
 
+    /// 按需补算高度：宽度变化时整体重建（不同宽度下已闭合块的高度本就该
+    /// 重新测量）；宽度不变时只重算 `cachedHeights` 里被标记为 `nil` 的槽位——
+    /// 已闭合块一旦算过就不会再被标脏，`AttributedCache.height` 那份「已闭合块
+    /// 只测量一次」的承诺才不会被这层局部缓存架空。
     private func ensureHeights(width: CGFloat) {
         guard width > 0 else { return }
-        guard cachedWidth != width || cachedHeights.count != blockViews.count else { return }
-        cachedWidth = width
-        cachedHeights = blockViews.map { $0.heightThatFits(width: width) }
+        if cachedWidth != width {
+            cachedWidth = width
+            cachedHeights = Array(repeating: nil, count: blockViews.count)
+        } else if cachedHeights.count != blockViews.count {
+            // 正常流程下 appendView/updateView/撤回分支已经让 cachedHeights 与
+            // blockViews 保持同步；这里是防御性兜底，理论不可达。
+            cachedHeights = Array(repeating: nil, count: blockViews.count)
+        }
+        for index in blocks.indices where cachedHeights[index] == nil {
+            cachedHeights[index] = computeHeight(at: index, width: width)
+        }
+    }
+
+    /// 已闭合块走 `AttributedCache.height`（按 block 内容 + 量化宽度缓存，
+    /// 命中时完全不触碰 `UITextView`/TextKit）；未闭合块每帧都在变，直接测量。
+    private func computeHeight(at index: Int, width: CGFloat) -> CGFloat {
+        let block = blocks[index]
+        let view = blockViews[index]
+        guard block.isSealed else {
+            return view.heightThatFits(width: width)
+        }
+        return cache.height(for: block, width: width, render: { [renderer] in
+            renderer.render($0)
+        }, measure: { _ in
+            // 属性串已经在 `configure` 里设进 view 了，这里直接测同一个视图，
+            // 不用 measure 闭包收到的属性串重新配置一份。
+            view.heightThatFits(width: width)
+        })
     }
 }

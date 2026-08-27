@@ -103,9 +103,17 @@ final class ChatViewController: UIViewController {
         inputBar.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
+            // I3 修复：左右也绑定到 safeAreaLayoutGuide,而不是只绑顶部。
+            // `UITableView.insetsContentViewsToSafeArea` 默认为 true,会让每个 cell 的
+            // contentView 再叠加一次安全区内边距;若 tableView 自己没有先贴safe area
+            // （之前只绑了 view.leadingAnchor/trailingAnchor),横屏 iPhone/iPad 上
+            // contentView.bounds.width 会比 tableView.bounds.width 窄一个安全区宽度——
+            // 离屏测量用前者会算出偏小的行高,layoutSubviews 再按后者排版,文字被裁。
+            // 让 tableView 自身先吃掉安全区,两个宽度就恒等,离屏测量与实际布局用的
+            // 是同一个数。
             tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: inputBar.topAnchor),
 
             inputBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -170,6 +178,11 @@ final class ChatViewController: UIViewController {
                 // 会把点 A 的按钮误重试成当前最后一条 B。
                 cell.onRetry = { [weak self] in
                     self?.handleRetryTapped(messageID: message.id)
+                }
+                // C2 修复：折叠区展开/收起会改变这条 cell 的高度,但那之前没有
+                // 任何地方给 onToggle 赋值,tableView 也就永远不会重新查询行高。
+                cell.onReasoningToggled = { [weak self] in
+                    self?.handleReasoningToggled(messageID: message.id)
                 }
                 return cell
             }
@@ -249,10 +262,23 @@ final class ChatViewController: UIViewController {
 
     /// 关键路径：拿到 cell 实例直接打补丁，**不走 reloadRows**。
     private func applyPatch(messageID: String, patch: BlockPatch) {
+        // 校验：补丁的 messageID 理应恒等于当前流式消息。`streamingMessageID`
+        // 由 `stateChanged` 在进入流式态时设置、`streamFinished`/`failed` 时清空，
+        // 与 ViewModel 侧「同一时刻只有一条流」的不变量对应；一旦不一致，说明
+        // 补丁被错误地打到了另一条消息上（例如两处状态更新的顺序被意外打乱），
+        // 这里 assert 提前暴露，而不是让 UI 静默显示错位的内容。
+        assert(streamingMessageID == nil || streamingMessageID == messageID,
+              "applyPatch 收到的 messageID(\(messageID)) 与当前流式消息(\(streamingMessageID ?? "nil")) 不一致")
         guard let indexPath = indexPath(for: messageID) else { return }
         guard let cell = tableView.cellForRow(at: indexPath) as? AssistantMessageCell else {
-            // 不在可视区就只更新高度缓存，等 cell 复用时由 configure 重建
-            invalidateHeight(for: messageID)
+            // I2 修复：不在可视区时只失效高度缓存,不能调用 invalidateHeight(for:)——
+            // 那是走 snapshot() 拷贝 + reconfigureItems + apply 的结构性刷新通道,
+            // 流式消息一旦滚出可视区,每帧都会触发一次全量 diff,而 apply 内部还会
+            // 让 tableView 重新查询行高、间接把这条消息的块视图全量测量一遍。
+            // 这里只清缓存值就够了：真正的重新 configure 交给 cell 滚回可视区时
+            // cellProvider 的 dequeueReusableCell → configure(blocks:) 路径,
+            // 那时 viewModel.blocks(for:) 已经是最新的完整块数组。
+            heightCache[messageID] = nil
             return
         }
 
@@ -289,6 +315,25 @@ final class ChatViewController: UIViewController {
             }
         }
         stickToBottomIfNeeded()
+    }
+
+    /// 用户手动展开/收起「思考过程」触发：与 `applyPatch`/`applyReasoning` 走
+    /// 同一套「重算高度 + beginUpdates/endUpdates」路径,但不 `stickToBottomIfNeeded()`——
+    /// 用户主动展开一段折叠内容时不该把视口强行拽到底部。
+    private func handleReasoningToggled(messageID: String) {
+        guard let indexPath = indexPath(for: messageID),
+              let cell = tableView.cellForRow(at: indexPath) as? AssistantMessageCell else { return }
+
+        let newHeight = cell.heightThatFits(width: tableView.bounds.width)
+        let oldHeight = heightCache[messageID]
+        heightCache[messageID] = newHeight
+
+        if oldHeight == nil || abs(oldHeight! - newHeight) > 0.5 {
+            UIView.performWithoutAnimation {
+                tableView.beginUpdates()
+                tableView.endUpdates()
+            }
+        }
     }
 
     /// 偏离简报：原版直接调用 `tableView.reloadRows(at:with:)`。
@@ -330,11 +375,20 @@ final class ChatViewController: UIViewController {
 
     // MARK: - 贴底
 
+    /// 贴到最底部时 `contentOffset.y` 应该等于的值（可能为负——内容比可视区
+    /// 矮时，"底部" 本来就在自然静止位置之上）。三处「最底部偏移」的计算
+    /// 之前各写各的，容易改一处漏改另一处；这里收成一个计算属性，具体要不要
+    /// 夹到 0 由各自调用方按语义决定（`stickToBottomIfNeeded` 允许贴到自然
+    /// 负偏移的静止位；`handleScrollToBottom` 是用户主动点按钮，夹到 0；
+    /// `distanceToBottom` 算的是「还差多少」，也要非负）。
+    private var maxContentOffsetY: CGFloat {
+        tableView.contentSize.height - tableView.bounds.height + tableView.adjustedContentInset.bottom
+    }
+
     /// pinned 状态下贴底。一律无动画，避免与减速动画互相打断。
     private func stickToBottomIfNeeded() {
         guard autoScroll.shouldStickToBottom else { return }
-        let bottomOffset = tableView.contentSize.height
-            - tableView.bounds.height + tableView.adjustedContentInset.bottom
+        let bottomOffset = maxContentOffsetY
         guard bottomOffset > -tableView.adjustedContentInset.top else { return }
 
         autoScroll.beginProgrammaticScroll()
@@ -344,10 +398,8 @@ final class ChatViewController: UIViewController {
 
     @objc private func handleScrollToBottom() {
         autoScroll.didTapScrollToBottom()
-        let bottomOffset = tableView.contentSize.height
-            - tableView.bounds.height + tableView.adjustedContentInset.bottom
         autoScroll.beginProgrammaticScroll()
-        tableView.setContentOffset(CGPoint(x: 0, y: max(0, bottomOffset)), animated: true)
+        tableView.setContentOffset(CGPoint(x: 0, y: max(0, maxContentOffsetY)), animated: true)
         // 动画结束前保持标记，避免中途被判成用户滚动
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             self?.autoScroll.endProgrammaticScroll()
@@ -355,9 +407,7 @@ final class ChatViewController: UIViewController {
     }
 
     private var distanceToBottom: CGFloat {
-        let maxOffset = tableView.contentSize.height
-            - tableView.bounds.height + tableView.adjustedContentInset.bottom
-        return max(0, maxOffset - tableView.contentOffset.y)
+        max(0, maxContentOffsetY - tableView.contentOffset.y)
     }
 
     // MARK: - 语音输入

@@ -32,8 +32,7 @@ struct ChatViewControllerTests {
                                           providerBox.current = provider
                                           return provider
                                       },
-                                      systemPrompt: nil,
-                                      model: "deepseek-chat",
+                                      requestConfigProvider: { (model: "deepseek-chat", systemPrompt: nil) },
                                       throttle: throttle)
         let vc = ChatViewController(viewModel: viewModel,
                                     renderer: AttributedRenderer(),
@@ -236,6 +235,47 @@ struct ChatViewControllerTests {
         throttle.fire()
         await retryProvider.finish()
         await waitForStreamEnd(viewModel)
+
+        withExtendedLifetime(window) {}
+    }
+
+    // MARK: - C2：思考过程折叠区展开后行高必须重新查询
+
+    /// `ReasoningSectionView.onToggle` 此前从未被任何地方赋值，展开思考过程
+    /// 不会让 tableView 重新查询行高，正文会被裁。这里断言接线确实生效：
+    /// 展开后再查一次 `heightForRowAt` 应该拿到更大的值，而不是折叠态的旧缓存。
+    @Test("展开思考过程后，行高会重新计算变大（C2）")
+    func reasoningToggleRecomputesHeight() async throws {
+        let (vc, _, _, repository, conversationID, _) = try make(chunks: [])
+
+        try insert(repository, id: "userA", conversationID: conversationID, ordinal: 0,
+                  role: .user, content: "问题", status: .completed)
+        let longReasoning = String(repeating: "这是很长的思考内容，需要好几行才能显示完整。", count: 20)
+        try repository.insertMessage(MessageRecord(
+            id: "assistantA", conversationId: conversationID, ordinal: 1,
+            roleRaw: ChatRole.assistant.rawValue, content: "回复正文", reasoning: longReasoning,
+            statusRaw: MessageStatus.completed.rawValue, errorMessage: nil,
+            promptTokens: nil, completionTokens: nil,
+            createdAt: Date().timeIntervalSince1970))
+
+        _ = vc.view
+        let window = attachToWindow(vc)
+
+        let table = try tableView(of: vc)
+        let ds = try diffableDataSource(vc)
+        let indexPath = try #require(ds.indexPath(for: "assistantA"))
+        await waitUntil(table.cellForRow(at: indexPath) != nil)
+        let cell = try #require(table.cellForRow(at: indexPath) as? AssistantMessageCell)
+
+        let collapsedHeight = vc.tableView(table, heightForRowAt: indexPath)
+        #expect(cell.reasoningExpandedForTesting == false)
+
+        cell.simulateReasoningToggleForTesting()
+        #expect(cell.reasoningExpandedForTesting == true)
+
+        let expandedHeight = vc.tableView(table, heightForRowAt: indexPath)
+        #expect(expandedHeight > collapsedHeight,
+                "onToggle 必须接线到「重算高度 + 惊动 tableView」，否则展开的思考文字会被裁掉")
 
         withExtendedLifetime(window) {}
     }

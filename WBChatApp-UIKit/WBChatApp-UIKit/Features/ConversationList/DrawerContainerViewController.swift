@@ -19,6 +19,12 @@ final class DrawerContainerViewController: UIViewController {
 
     private var isOpen = false
 
+    /// I4 修复：手势开始那一刻 content 的 x,拖动增量要叠加在它上面,而不是
+    /// 无脑从 0 开始算。抽屉已展开时 content 的初始 x 是 `drawerWidth` 而不是 0,
+    /// 不记下这个起点,`.changed` 里直接把 `translation` 当成新 x 会让 content
+    /// 在手指刚动一点点时就被摁回 x = 0,抽屉「开着往右拖」反而先闪回关闭态。
+    private var dragStartX: CGFloat = 0
+
     private var drawerWidth: CGFloat {
         min(view.bounds.width * Self.drawerWidthRatio, Self.maxDrawerWidth)
     }
@@ -120,18 +126,36 @@ final class DrawerContainerViewController: UIViewController {
     }
 
     @objc private func handleEdgePan(_ gesture: UIScreenEdgePanGestureRecognizer) {
-        switch gesture.state {
+        handleEdgePan(state: gesture.state,
+                     translationX: gesture.translation(in: view).x,
+                     velocityX: gesture.velocity(in: view).x)
+    }
+
+    /// 核心逻辑与 `UIGestureRecognizer` 解耦：手势对象本身在单测里不便构造
+    /// （`translation(in:)`/`velocity(in:)` 无法直接注入），拆成只依赖原始数值
+    /// 的方法，测试走 `simulateEdgePanForTesting`。
+    private func handleEdgePan(state: UIGestureRecognizer.State, translationX: CGFloat, velocityX: CGFloat) {
+        switch state {
+        case .began:
+            dragStartX = contentViewController.view.frame.origin.x
         case .changed:
-            let translation = max(0, min(drawerWidth, gesture.translation(in: view).x))
-            contentViewController.view.frame.origin.x = translation
-            dimmingView.alpha = translation / drawerWidth
-            updateDimmingFrame(contentX: translation)
+            let x = min(drawerWidth, max(0, dragStartX + translationX))
+            contentViewController.view.frame.origin.x = x
+            dimmingView.alpha = drawerWidth > 0 ? x / drawerWidth : 0
+            updateDimmingFrame(contentX: x)
         case .ended, .cancelled:
-            let shouldOpen = gesture.translation(in: view).x > drawerWidth / 2
-                || gesture.velocity(in: view).x > 500
+            let finalX = min(drawerWidth, max(0, dragStartX + translationX))
+            let shouldOpen = finalX > drawerWidth / 2 || velocityX > 500
             setDrawer(open: shouldOpen, animated: true)
         default:
             break
         }
+    }
+
+    /// 供测试直接驱动边缘拖动手势的状态机，不用构造真实的
+    /// `UIScreenEdgePanGestureRecognizer`（`translation(in:)`/`velocity(in:)`
+    /// 是只读的系统内部状态，测试无法从外部注入）。
+    func simulateEdgePanForTesting(state: UIGestureRecognizer.State, translationX: CGFloat, velocityX: CGFloat = 0) {
+        handleEdgePan(state: state, translationX: translationX, velocityX: velocityX)
     }
 }

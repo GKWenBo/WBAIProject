@@ -43,7 +43,11 @@ enum SSEStream {
         }
     }
 
-    /// 非 2xx 时读出错误体再抛，尽量把服务端文案带给用户。
+    /// 非 2xx 时直接根据状态码抛出对应的 `ChatError`。
+    /// 注意：这里只读状态码与 `Retry-After` 头，**不读错误响应体**——
+    /// `session.bytes(for:)` 返回的 `AsyncBytes` 是流式的，此处拿到的只是
+    /// 首个响应头到达时的 `URLResponse`，body 还没被消费；`ChatError.serverError`
+    /// 的 `message` 目前恒为 `nil`，服务端返回的错误文案不会被带给用户。
     private static func validate(_ response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else { return }
         guard !(200..<300).contains(http.statusCode) else { return }

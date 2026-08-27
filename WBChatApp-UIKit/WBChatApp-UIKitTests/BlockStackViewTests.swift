@@ -110,6 +110,36 @@ struct BlockStackViewTests {
                 "总高度应精确等于两块各自高度之和加一份间距")
     }
 
+    @Test("已闭合块高度只测量一次——流式期间不应每帧重测已闭合块（I1）")
+    func sealedBlockHeightMeasuredOnceAcrossStreamingFrames() {
+        let stack = makeStack()
+
+        // 第 0 块从未闭合写到闭合，第 1 块开始持续流式追加——模拟真实的
+        // 「已闭合块越堆越多，尾块每帧都在变」的场景。
+        stack.applyPatch(BlockPatch(newlySealed: [], open: open(0, "写")))
+        stack.applyPatch(BlockPatch(newlySealed: [sealed(0, "写完了")], open: open(1, "变")))
+
+        guard let sealedView = stack.blockViewForTesting(at: 0) as? MarkdownTextBlockView else {
+            Issue.record("第 0 块应为文本块视图")
+            return
+        }
+
+        // 首次查询高度会测量一次（缓存未命中）。
+        _ = stack.heightThatFits(width: 300)
+        let countAfterFirstMeasure = sealedView.heightMeasureCountForTesting
+        #expect(countAfterFirstMeasure == 1, "已闭合块首次测量应恰好发生一次")
+
+        // 模拟后续多帧流式更新：只有尾块（未闭合）在变，已闭合的第 0 块
+        // 不应该再被重新测量。
+        for i in 0..<20 {
+            stack.applyPatch(BlockPatch(newlySealed: [], open: open(1, "变化中\(i)")))
+            _ = stack.heightThatFits(width: 300)
+        }
+
+        #expect(sealedView.heightMeasureCountForTesting == 1,
+                "已闭合块的高度应该只测量一次；若每帧都重测，说明高度缓存被流式补丁绕过了")
+    }
+
     @Test("recycleAll 清空所有子视图")
     func recycleAllClears() {
         let stack = makeStack()
@@ -139,6 +169,26 @@ struct BlockStackViewTests {
         #expect(cell.blockCountForTesting == 2, "补丁应转发到容器，新增一个已闭合块")
         let heightAfter = cell.heightThatFits(width: 375)
         #expect(heightAfter > heightBefore, "新增块后高度应变大")
+    }
+
+    @Test("思考过程展开态不会随 cell 复用泄漏到下一条消息（C2）")
+    func reasoningExpandedStateResetsOnPrepareForReuse() {
+        let cell = AssistantMessageCell(style: .default, reuseIdentifier: AssistantMessageCell.reuseIdentifier)
+        cell.configure(blocks: [sealed(0, "回复")],
+                       reasoning: "思考过程内容",
+                       status: .completed,
+                       errorText: nil,
+                       pool: BlockViewPool(),
+                       cache: AttributedCache(),
+                       renderer: AttributedRenderer())
+
+        cell.simulateReasoningToggleForTesting()
+        #expect(cell.reasoningExpandedForTesting == true, "前置条件：确实展开了")
+
+        cell.prepareForReuse()
+
+        #expect(cell.reasoningExpandedForTesting == false,
+                "cell 复用到另一条消息前，上一条消息的展开态必须被收起")
     }
 
     @Test("用户 cell 展示原始文本，不做 Markdown 渲染")

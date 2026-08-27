@@ -55,8 +55,14 @@ final class ChatViewModel {
     private let conversationID: String
     private let repository: ChatRepository
     private let providerFactory: () -> ChatProvider
-    private let systemPrompt: String?
-    private let model: String
+    /// 与 `providerFactory` 同构：每次开一轮新流都现取一次，而不是在
+    /// `init` 时把 `model`/`systemPrompt` 快照进 `let`。
+    ///
+    /// C1 修复：旧实现把这两个值存成 `let`，设置页换了服务商/模型后，
+    /// 已经打开的聊天页（同一个 `ChatViewModel` 实例）拿到的还是旧值——
+    /// `providerFactory` 闭包倒是会读到新的 baseURL/Key（新建的 adapter），
+    /// 于是「新 provider + 旧 model 字段」拼出一个跨服务商的非法请求体。
+    private let requestConfigProvider: () -> (model: String, systemPrompt: String?)
     private let throttle: StreamThrottling
 
     /// 上下文最多携带多少条历史
@@ -86,14 +92,12 @@ final class ChatViewModel {
     init(conversationID: String,
          repository: ChatRepository,
          providerFactory: @escaping () -> ChatProvider,
-         systemPrompt: String?,
-         model: String,
+         requestConfigProvider: @escaping () -> (model: String, systemPrompt: String?),
          throttle: StreamThrottling) {
         self.conversationID = conversationID
         self.repository = repository
         self.providerFactory = providerFactory
-        self.systemPrompt = systemPrompt
-        self.model = model
+        self.requestConfigProvider = requestConfigProvider
         self.throttle = throttle
 
         throttle.onTick = { [weak self] in self?.flush() }
@@ -359,9 +363,11 @@ final class ChatViewModel {
             .suffix(contextLimit)
             .map { ChatMessage(role: $0.role, content: $0.text) }
 
-        return ChatRequest(model: model,
+        // 现取而非用 init 时的快照：确保设置页刚改完就立刻生效（C1）。
+        let config = requestConfigProvider()
+        return ChatRequest(model: config.model,
                            messages: Array(history),
-                           system: systemPrompt,
+                           system: config.systemPrompt,
                            temperature: 0.7,
                            maxTokens: 4096)
     }
