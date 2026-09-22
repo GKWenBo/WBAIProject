@@ -131,9 +131,19 @@ extension ConversationListViewController: UITableViewDelegate {
 
         let delete = UIContextualAction(style: .destructive, title: "删除") {
             [weak self] _, _, completion in
-            self?.viewModel.delete(id: id)
-            self?.onDelete?(id)
-            completion(true)
+            Task { @MainActor [weak self] in
+                guard let self else { completion(false); return }
+                do {
+                    try await self.viewModel.delete(id: id)
+                    self.onDelete?(id)
+                    completion(true)
+                } catch {
+                    completion(false)
+                    let alert = UIAlertController(title: "删除失败", message: "聊天记录未能删除，请重试", preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "好", style: .default))
+                    self.present(alert, animated: true)
+                }
+            }
         }
         let rename = UIContextualAction(style: .normal, title: "重命名") {
             [weak self] _, _, completion in

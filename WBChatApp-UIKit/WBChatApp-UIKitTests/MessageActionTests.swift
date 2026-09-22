@@ -50,7 +50,7 @@ struct MessageActionTests {
             chunks: [.textDelta("半截")],
             error: ChatError.serverError(status: 500, message: nil))
 
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let firstProvider = try #require(providerBox.current)
         await firstProvider.deliverNext()
         throttle.fire()
@@ -58,7 +58,7 @@ struct MessageActionTests {
         await waitForStreamEnd(viewModel)
         #expect(viewModel.state.messages.last?.status == .failed)
 
-        viewModel.retryLast()
+        await viewModel.retryLast()
         #expect(viewModel.state.isStreaming)
         #expect(viewModel.state.messages.last?.errorText == nil)
 
@@ -76,7 +76,7 @@ struct MessageActionTests {
         let (viewModel, throttle, providerBox) = try makeViewModel(
             chunks: [.textDelta("内容"), .done(finishReason: "stop")])
 
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let firstProvider = try #require(providerBox.current)
         await firstProvider.deliverNext()
         throttle.fire()
@@ -84,7 +84,7 @@ struct MessageActionTests {
         await waitForStreamEnd(viewModel)
         let countBefore = viewModel.state.messages.count
 
-        viewModel.retryLast()
+        await viewModel.retryLast()
         let retryProvider = try #require(providerBox.current)
         await retryProvider.deliverNext()
         throttle.fire()
@@ -99,7 +99,7 @@ struct MessageActionTests {
         let (viewModel, throttle, providerBox) = try makeViewModel(
             chunks: [.textDelta("第一次"), .done(finishReason: "stop")])
 
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let firstProvider = try #require(providerBox.current)
         await firstProvider.deliverNext()
         throttle.fire()
@@ -107,8 +107,8 @@ struct MessageActionTests {
         await waitForStreamEnd(viewModel)
 
         let assistantID = try #require(viewModel.state.messages.last?.id)
-        viewModel.retryLast()
-        #expect(viewModel.blocks(for: assistantID).isEmpty, "重试瞬间旧内容应被清空")
+        await viewModel.retryLast()
+        #expect(!viewModel.blocks(for: assistantID).isEmpty, "首段到达前保留旧内容")
 
         let retryProvider = try #require(providerBox.current)
         await retryProvider.deliverNext()
@@ -123,7 +123,7 @@ struct MessageActionTests {
     /// 这里改为直接向仓库插入一条纯用户消息、`loadHistory()` 读回，让
     /// `state.messages.last?.role == .user`，才是名副其实地覆盖角色判断这条分支。
     @Test("用户消息不响应 retryLast")
-    func retryIgnoresUserMessage() throws {
+    func retryIgnoresUserMessage() async throws {
         let repository = GRDBChatRepository(queue: try AppDatabase.makeQueue(at: nil))
         let conversation = try repository.createConversation(title: "会话", provider: .deepSeek,
                                                              model: "m")
@@ -142,7 +142,7 @@ struct MessageActionTests {
         viewModel.loadHistory()
         #expect(viewModel.state.messages.last?.role == .user)
 
-        viewModel.retryLast()
+        await viewModel.retryLast()
         #expect(!viewModel.state.isStreaming)
     }
 }

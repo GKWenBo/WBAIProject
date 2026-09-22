@@ -85,6 +85,24 @@ final class ChatViewController: UIViewController {
         viewModel.loadHistory()
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        let position = viewModel.readingPosition
+        autoScroll.restore(pinned: position.pinned)
+        viewModel.setVisible(true)
+        inputBar.setText(viewModel.draft)
+        tableView.layoutIfNeeded()
+        if position.pinned { stickToBottomIfNeeded() }
+        else { tableView.setContentOffset(CGPoint(x: 0, y: position.offset), animated: false) }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        viewModel.draft = inputBar.text
+        viewModel.readingPosition = .init(offset: tableView.contentOffset.y, pinned: autoScroll.shouldStickToBottom)
+        viewModel.setVisible(false)
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         if cachedWidth != tableView.bounds.width {
@@ -134,9 +152,13 @@ final class ChatViewController: UIViewController {
         tableView.delegate = self
 
         inputBar.onSend = { [weak self] text in
-            self?.autoScroll.didSendMessage()
-            self?.viewModel.send(text)
+            guard let self else { return false }
+            let accepted = await self.viewModel.send(text)
+            if accepted { self.autoScroll.didSendMessage() }
+            return accepted
         }
+        inputBar.onTextChanged = { [weak self] in self?.viewModel.draft = $0 }
+        inputBar.setText(viewModel.draft)
         inputBar.onStop = { [weak self] in self?.viewModel.stop() }
         inputBar.onHeightChange = { [weak self] in self?.stickToBottomIfNeeded() }
         inputBar.onMicTap = { [weak self] in self?.startVoiceInput() }
@@ -163,12 +185,14 @@ final class ChatViewController: UIViewController {
                 let cell = tableView.dequeueReusableCell(
                     withIdentifier: AssistantMessageCell.reuseIdentifier, for: indexPath) as! AssistantMessageCell
                 cell.configure(blocks: self.viewModel.blocks(for: message.id),
-                               reasoning: message.reasoning,
+                               reasoning: viewModel.displayReasoning(for: message.id),
                                status: message.status,
                                errorText: message.errorText,
                                pool: self.pool,
                                cache: self.cache,
-                               renderer: self.renderer)
+                               renderer: self.renderer,
+                               canRetry: message.id == self.viewModel.state.messages.last?.id && (self.viewModel.state.canSend || self.viewModel.state.hasUnsavedContent),
+                               retryTitle: self.viewModel.state.hasUnsavedContent ? "重试保存" : "重新生成")
                 cell.onCodeCopy = { _ in Haptics.success() }
                 cell.onLinkTap = { url in UIApplication.shared.open(url) }
                 // Critical 1：闭包在这里按当前这一行的 message.id 捕获,
@@ -199,6 +223,7 @@ final class ChatViewController: UIViewController {
             case .stateChanged(let state):
                 self.applySnapshot(state)
                 self.inputBar.setStreaming(state.isStreaming)
+                self.inputBar.setCanSend(state.canSend)
                 self.streamingMessageID = state.isStreaming ? state.messages.last?.id : nil
 
             case .blocksReset(let messageID):
@@ -214,9 +239,11 @@ final class ChatViewController: UIViewController {
                 self.streamingMessageID = nil
                 self.invalidateHeight(for: messageID)
 
-            case .failed(_, let messageID):
-                self.streamingMessageID = nil
-                if let messageID { self.invalidateHeight(for: messageID) }
+            case .failed(let error, let messageID):
+                if let messageID {
+                    self.streamingMessageID = nil
+                    self.invalidateHeight(for: messageID)
+                } else { self.presentErrorAlert(error == .storage ? "消息未保存，请重试" : error.userMessage) }
             }
         }
     }
@@ -234,7 +261,10 @@ final class ChatViewController: UIViewController {
         snapshot.appendSections([0])
         snapshot.appendItems(state.messages.map(\.id))
 
-        // 内容变化的行不靠 snapshot 刷新，交给增量补丁
+        // 这里只处理结构/状态变化；token 增量仍走补丁。保留旧内容时也要立刻隐藏重试按钮。
+        let existing = Set(dataSource.snapshot().itemIdentifiers)
+        snapshot.reconfigureItems(state.messages.map(\.id).filter { existing.contains($0) })
+        heightCache.removeAll()
         dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
             self?.stickToBottomIfNeeded()
         }
@@ -369,8 +399,12 @@ final class ChatViewController: UIViewController {
     private func handleRetryTapped(messageID: String) {
         guard !viewModel.state.isStreaming,
               viewModel.state.messages.last?.id == messageID else { return }
-        autoScroll.didSendMessage()
-        viewModel.retryLast()
+        if viewModel.state.hasUnsavedContent {
+            Task { await viewModel.retrySave() }
+        } else {
+            autoScroll.didSendMessage()
+            Task { await viewModel.retryLast() }
+        }
     }
 
     // MARK: - 贴底
@@ -555,10 +589,12 @@ extension ChatViewController: UITableViewDelegate {
             cell.prepareForReuse()
             cell.frame = CGRect(x: 0, y: 0, width: width, height: 0)
             cell.configure(blocks: viewModel.blocks(for: message.id),
-                           reasoning: message.reasoning,
+                           reasoning: viewModel.displayReasoning(for: message.id),
                            status: message.status,
                            errorText: message.errorText,
-                           pool: pool, cache: cache, renderer: renderer)
+                           pool: pool, cache: cache, renderer: renderer,
+                           canRetry: message.id == viewModel.state.messages.last?.id && (viewModel.state.canSend || viewModel.state.hasUnsavedContent),
+                           retryTitle: viewModel.state.hasUnsavedContent ? "重试保存" : "重新生成")
             return cell.heightThatFits(width: width)
         }
     }
@@ -607,11 +643,11 @@ extension ChatViewController: UITableViewDelegate {
             // 只有最后一条助手消息、且当前不在流式中，才允许重新生成
             let isLastAssistant = message.role == .assistant
                 && self?.viewModel.state.messages.last?.id == messageID
-            if isLastAssistant, self?.viewModel.state.isStreaming == false {
+            if isLastAssistant, self?.viewModel.state.canSend == true {
                 actions.append(UIAction(title: "重新生成",
                                         image: UIImage(systemName: "arrow.clockwise")) { _ in
                     self?.autoScroll.didSendMessage()
-                    self?.viewModel.retryLast()
+                    Task { await self?.viewModel.retryLast() }
                 })
             }
             return UIMenu(children: actions)

@@ -20,6 +20,10 @@ protocol ChatRepository: AnyObject {
     func insertMessage(_ record: MessageRecord) throws
     func updateMessage(_ record: MessageRecord) throws
     func touchConversation(id: String) throws
+    func beginTurn(conversationID: String, text: String, generationID: String) throws -> [MessageRecord]
+    func beginRegeneration(conversationID: String, messageID: String, generationID: String) throws -> [MessageRecord]
+    @discardableResult func saveGeneration(_ record: MessageRecord) throws -> Bool
+    func recoverInterruptedGenerations() throws
 }
 
 final class GRDBChatRepository: ChatRepository {
@@ -114,5 +118,90 @@ final class GRDBChatRepository: ChatRepository {
 
     func updateMessage(_ record: MessageRecord) throws {
         try queue.write { db in try record.update(db) }
+    }
+}
+
+
+extension GRDBChatRepository {
+    func beginTurn(conversationID: String, text: String, generationID: String) throws -> [MessageRecord] {
+        try queue.write { db in
+            let now = Date().timeIntervalSince1970
+            let next = try Int.fetchOne(db, sql: "SELECT COALESCE(MAX(ordinal), -1) + 1 FROM message WHERE conversationId = ?",
+                                       arguments: [conversationID]) ?? 0
+            var user = MessageRecord(id: UUID().uuidString, conversationId: conversationID, ordinal: next,
+                roleRaw: "user", content: text, reasoning: nil, statusRaw: "completed", errorMessage: nil,
+                promptTokens: nil, completionTokens: nil, createdAt: now)
+            var assistant = MessageRecord(id: UUID().uuidString, conversationId: conversationID, ordinal: next + 1,
+                roleRaw: "assistant", content: "", reasoning: nil, statusRaw: "streaming", errorMessage: nil,
+                promptTokens: nil, completionTokens: nil, createdAt: now, generationID: generationID)
+            try user.insert(db)
+            try assistant.insert(db)
+            try db.execute(sql: "UPDATE conversation SET updatedAt = ? WHERE id = ?", arguments: [now, conversationID])
+            return try MessageRecord.filter(Column("conversationId") == conversationID).order(Column("ordinal")).fetchAll(db)
+        }
+    }
+
+    func beginRegeneration(conversationID: String, messageID: String, generationID: String) throws -> [MessageRecord] {
+        try queue.write { db in
+            let records = try MessageRecord.filter(Column("conversationId") == conversationID).order(Column("ordinal")).fetchAll(db)
+            guard var last = records.last, last.id == messageID, last.role == .assistant else { throw ChatError.storage }
+            last.generationID = generationID
+            last.snapshotSequence = 0
+            last.checkpointAt = nil
+            last.statusRaw = MessageStatus.streaming.rawValue
+            last.errorMessage = nil
+            last.endReason = nil
+            try last.update(db)
+            try db.execute(sql: "UPDATE conversation SET updatedAt = ? WHERE id = ?",
+                           arguments: [Date().timeIntervalSince1970, conversationID])
+            return Array(records.dropLast()) + [last]
+        }
+    }
+
+    @discardableResult
+    func saveGeneration(_ record: MessageRecord) throws -> Bool {
+        try queue.write { db in
+            guard let current = try MessageRecord.fetchOne(db, key: record.id),
+                  current.generationID == record.generationID,
+                  current.status == .streaming,
+                  record.snapshotSequence > current.snapshotSequence else { return false }
+            try record.update(db)
+            if record.status != .streaming {
+                try db.execute(sql: "UPDATE conversation SET updatedAt = ? WHERE id = ?",
+                               arguments: [Date().timeIntervalSince1970, record.conversationId])
+            }
+            return true
+        }
+    }
+
+    func recoverInterruptedGenerations() throws {
+        try queue.write { db in
+            try db.execute(sql: """
+                UPDATE message SET statusRaw = 'interrupted', endReason = 'processRestart',
+                    errorMessage = '上次生成已中断，可重新生成', checkpointAt = ?
+                WHERE statusRaw = 'streaming'
+                """, arguments: [Date().timeIntervalSince1970])
+        }
+    }
+}
+
+/// 所有生成写入在独立串行队列执行；顺序与数据库 CAS 共同保护终态。
+final class GenerationStore: @unchecked Sendable {
+    private let repository: ChatRepository
+    private let queue = DispatchQueue(label: "chat.generation.persistence", qos: .utility)
+
+    init(repository: ChatRepository) { self.repository = repository }
+
+    func schedule<T>(_ operation: @escaping (ChatRepository) throws -> T,
+                     completion: @escaping (Result<T, Error>) -> Void) {
+        queue.async { completion(Result { try operation(self.repository) }) }
+    }
+
+    func perform<T>(_ operation: @escaping (ChatRepository) throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                continuation.resume(with: Result { try operation(self.repository) })
+            }
+        }
     }
 }

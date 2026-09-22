@@ -105,8 +105,7 @@ struct ChatViewControllerTests {
     // MARK: - Critical 1：重试按钮不能误重试成别的消息
 
     /// 复现简报里的场景：助手回复 A 失败，用户又发了一条 B 并且 B 已经流完。
-    /// A 的「重新生成」按钮理应还留在屏幕上（因为 A 自己确实是失败状态），
-    /// 但点它绝不能把 B 重跑一遍——B 才是 `state.messages.last`。
+    /// A 已经不是最后一条，应隐藏重新生成；残留回调也不能把 B 重跑一遍。
     @Test("点击非最后一条消息上的重试按钮，不会误重试成当前最后一条消息")
     func staleRetryButtonDoesNotRetryWrongMessage() throws {
         let (vc, viewModel, _, repository, conversationID, providerBox) = try make(chunks: [])
@@ -128,8 +127,8 @@ struct ChatViewControllerTests {
         let cellA = try #require(
             ds.tableView(table, cellForRowAt: indexPathA) as? AssistantMessageCell)
 
-        // 前置条件：A 自己状态是 failed，按钮理应可见——这不是 bug
-        #expect(retryButton(in: cellA)?.isHidden == false)
+        // 历史失败消息不再提供无效按钮，仍验证旧回调的身份防护。
+        #expect(retryButton(in: cellA)?.isHidden == true)
 
         retryButton(in: cellA)?.sendActions(for: .touchUpInside)
 
@@ -154,7 +153,7 @@ struct ChatViewControllerTests {
 
         // 先跑一轮真的失败的流，产出一条状态为 .failed 且是最后一条的助手消息
         _ = vc.view
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let firstProvider = try #require(providerBox.current)
         await firstProvider.deliverNext()
         throttle.fire()
@@ -173,6 +172,10 @@ struct ChatViewControllerTests {
         // providerFactory 需要重新准备一个新 provider 供 retryLast() 使用；
         // make() 传入的 chunks/error 是同一份脚本，GatedProvider 每次都会重新创建
         retryButton(in: cell)?.sendActions(for: .touchUpInside)
+        // 重试先异步提交生成身份；按钮回调返回时事务不一定已经完成。
+        for _ in 0..<200 where !viewModel.state.isStreaming {
+            try await Task.sleep(for: .milliseconds(5))
+        }
 
         #expect(viewModel.state.isStreaming, "点最后一条消息自己的按钮应该正常触发 retryLast")
         // 注意：providerFactory 复用同一份脚本（含 error），retry 这一轮也会以
@@ -204,7 +207,7 @@ struct ChatViewControllerTests {
         _ = vc.view
         let window = attachToWindow(vc)
 
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let firstProvider = try #require(providerBox.current)
         await firstProvider.deliverNext()
         throttle.fire()
@@ -225,7 +228,7 @@ struct ChatViewControllerTests {
 
         // retryLast() 内部会先同步发出 blocksReset，VC 的 resetBlocks(messageID:)
         // 应该在这次调用返回之前就已经把同一个 cell 实例上的按钮隐藏掉
-        viewModel.retryLast()
+        await viewModel.retryLast()
         #expect(retryButton(in: cell)?.isHidden == true,
                 "resetBlocks 之后必须立即隐藏按钮，不能等流结束才刷新")
 

@@ -8,6 +8,9 @@ enum ChatError: Error, Equatable {
     case network(code: Int)
     case timeout
     case decoding(String)
+    case interruptedStream
+    case storage
+    case generationLimit
     case cancelled
 
     /// 所有面向用户的文案集中在这里，便于后续本地化。
@@ -33,6 +36,12 @@ enum ChatError: Error, Equatable {
             return "请求超时，请重试"
         case .decoding:
             return "响应格式无法识别"
+        case .interruptedStream:
+            return "连接已结束，但回复尚未完整生成"
+        case .storage:
+            return "内容尚未保存，请重试保存"
+        case .generationLimit:
+            return "已有三个会话正在生成，请等待完成或停止其中一个"
         case .cancelled:
             return "已停止生成"
         }

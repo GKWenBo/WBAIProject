@@ -1,46 +1,139 @@
 import Foundation
 
+struct StreamTimingConfiguration: Sendable {
+    var networkIdleTimeout: Duration
+    var semanticProgressTimeout: Duration
+    var totalTimeout: Duration
+    var usageTailTimeout: Duration
+    var pollingInterval: Duration
+
+    static let `default` = StreamTimingConfiguration(
+        networkIdleTimeout: .seconds(60),
+        semanticProgressTimeout: .seconds(180),
+        totalTimeout: .seconds(600),
+        usageTailTimeout: .seconds(2),
+        pollingInterval: .milliseconds(100)
+    )
+}
+
+protocol StreamClock: Sendable {
+    var now: ContinuousClock.Instant { get }
+    func sleep(for duration: Duration) async throws
+}
+
+struct SystemStreamClock: StreamClock {
+    var now: ContinuousClock.Instant { .now }
+    func sleep(for duration: Duration) async throws {
+        try await Task.sleep(for: duration)
+    }
+}
+
+private final class SSEStreamActivity: @unchecked Sendable {
+    private let lock = NSLock()
+    private let clock: any StreamClock
+    private let startedAt: ContinuousClock.Instant
+    private var lastByteAt: ContinuousClock.Instant
+
+    init(clock: any StreamClock) {
+        self.clock = clock
+        startedAt = clock.now
+        lastByteAt = startedAt
+    }
+
+    func receivedByte() {
+        lock.withLock {
+            lastByteAt = clock.now
+        }
+    }
+
+    func hasTimedOut(at now: ContinuousClock.Instant,
+                     timing: StreamTimingConfiguration) -> Bool {
+        lock.withLock {
+            now - startedAt >= timing.totalTimeout ||
+                now - lastByteAt >= timing.networkIdleTimeout
+        }
+    }
+}
+
 /// 把一次 HTTP 请求变成 SSE 事件流。
 /// 负责状态码检查与字节喂给解析器，不理解任何业务语义。
+struct SSEConnection: Sendable {
+    let events: AsyncThrowingStream<SSEEvent, Error>
+    let producer: Task<Void, Never>
+
+    func close() async {
+        producer.cancel()
+        await producer.value
+    }
+}
+
 enum SSEStream {
 
-    static func events(for request: URLRequest,
-                       session: URLSession) -> AsyncThrowingStream<SSEEvent, Error> {
-        AsyncThrowingStream { continuation in
+    static func connection(for request: URLRequest,
+                       session: URLSession,
+                       timing: StreamTimingConfiguration = .default,
+                       clock: any StreamClock = SystemStreamClock()) -> SSEConnection {
+        var producer: Task<Void, Never>!
+        let events = AsyncThrowingStream<SSEEvent, Error> { continuation in
             let task = Task {
                 do {
-                    let (bytes, response) = try await session.bytes(for: request)
-                    try Self.validate(response)
-
-                    let parser = SSEEventParser()
-                    var buffer = [UInt8]()
-                    buffer.reserveCapacity(4096)
-
-                    for try await byte in bytes {
-                        buffer.append(byte)
-                        // 攒到换行再交给解析器，避免每字节一次函数调用
-                        if byte == 0x0A {
-                            for event in parser.consume(Data(buffer)) {
-                                continuation.yield(event)
+                    let activity = SSEStreamActivity(clock: clock)
+                    try await withThrowingTaskGroup(of: Void.self) { group in
+                        group.addTask {
+                            let (bytes, response) = try await session.bytes(for: request)
+                            // AsyncBytes 的迭代取消不保证释放仍打开的 HTTP 请求。
+                            // 无论正常结束、协议提前结束还是超时，都显式取消实际任务。
+                            defer { bytes.task.cancel() }
+                            try await withTaskCancellationHandler {
+                                try Task.checkCancellation()
+                                try Self.validate(response)
+                                let parser = SSEEventParser()
+                                for try await byte in bytes {
+                                    try Task.checkCancellation()
+                                    activity.receivedByte()
+                                    for event in parser.consume(byte: byte) {
+                                        continuation.yield(event)
+                                    }
+                                }
+                                for event in parser.finish() {
+                                    continuation.yield(event)
+                                }
+                            } onCancel: {
+                                bytes.task.cancel()
                             }
-                            buffer.removeAll(keepingCapacity: true)
                         }
-                    }
-                    if !buffer.isEmpty {
-                        for event in parser.consume(Data(buffer)) {
-                            continuation.yield(event)
+
+                        group.addTask {
+                            while !Task.isCancelled {
+                                do {
+                                    try await clock.sleep(for: timing.pollingInterval)
+                                } catch is CancellationError {
+                                    return
+                                }
+                                if activity.hasTimedOut(at: clock.now, timing: timing) {
+                                    throw ChatError.timeout
+                                }
+                            }
                         }
-                    }
-                    for event in parser.finish() {
-                        continuation.yield(event)
+
+                        do {
+                            _ = try await group.next()
+                            group.cancelAll()
+                            try await group.waitForAll()
+                        } catch {
+                            group.cancelAll()
+                            throw error
+                        }
                     }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: ChatError.from(error))
                 }
             }
+            producer = task
             continuation.onTermination = { _ in task.cancel() }
         }
+        return SSEConnection(events: events, producer: producer)
     }
 
     /// 非 2xx 时直接根据状态码抛出对应的 `ChatError`。

@@ -12,6 +12,8 @@ final class SSEEventParser {
     /// 尚未切出完整行的原始字节。按字节缓冲而非按字符串缓冲，
     /// 才能保证多字节字符被劈开时不会解码出替换字符。
     private var byteBuffer: [UInt8] = []
+    /// 单独消费 CR 后，下一字节若为 LF，则它只是同一个 CRLF 的后半段。
+    private var shouldSkipLeadingLF = false
 
     private var eventType: String?
     private var dataLines: [String] = []
@@ -19,31 +21,27 @@ final class SSEEventParser {
     private var retry: Int?
 
     func consume(_ data: Data) -> [SSEEvent] {
-        byteBuffer.append(contentsOf: data)
-        var events: [SSEEvent] = []
+        data.flatMap { consume(byte: $0) }
+    }
 
-        while let terminator = nextLineTerminator() {
-            let lineBytes = Array(byteBuffer[0..<terminator.lineEnd])
-            byteBuffer.removeFirst(terminator.consumed)
-            let line = String(decoding: lineBytes, as: UTF8.self)
-            if let event = handle(line: line) {
-                events.append(event)
-            }
+    func consume(byte: UInt8) -> [SSEEvent] {
+        if shouldSkipLeadingLF {
+            shouldSkipLeadingLF = false
+            if byte == 0x0A { return [] }
         }
-        return events
+        guard byte == 0x0A || byte == 0x0D else {
+            byteBuffer.append(byte)
+            return []
+        }
+        shouldSkipLeadingLF = byte == 0x0D
+        let line = String(decoding: byteBuffer, as: UTF8.self)
+        byteBuffer.removeAll(keepingCapacity: true)
+        return handle(line: line).map { [$0] } ?? []
     }
 
     /// 流结束时调用，冲刷末尾没有空行收尾的残留事件。
     func finish() -> [SSEEvent] {
         var events: [SSEEvent] = []
-        // consume 阶段对落在缓冲区末尾的 \r 会保守地留在缓冲区里，
-        // 因为无法判断它是单独的 CR 还是被切断的 CRLF 前半。
-        // 流已经结束，不会再有下一个字节来消解这个悬念，
-        // 这里按“单独 CR 也是行终止符”的规范把它当结尾换行剥掉，
-        // 避免它被当作残留内容烙进字段值里。
-        if byteBuffer.last == 0x0D {
-            byteBuffer.removeLast()
-        }
         if !byteBuffer.isEmpty {
             let line = String(decoding: byteBuffer, as: UTF8.self)
             byteBuffer.removeAll()
@@ -58,28 +56,6 @@ final class SSEEventParser {
     }
 
     // MARK: - 私有
-
-    private struct LineTerminator {
-        /// 行内容的结束下标（不含换行符本身）
-        let lineEnd: Int
-        /// 本行连同换行符共消耗的字节数
-        let consumed: Int
-    }
-
-    private func nextLineTerminator() -> LineTerminator? {
-        guard let index = byteBuffer.firstIndex(where: { $0 == 0x0A || $0 == 0x0D }) else {
-            return nil
-        }
-        if byteBuffer[index] == 0x0D {
-            // 落在缓冲区末尾的 \r 必须等下一个字节到达，
-            // 否则无法区分它是单独的 CR 还是 CRLF 的前半
-            if index == byteBuffer.count - 1 { return nil }
-            if byteBuffer[index + 1] == 0x0A {
-                return LineTerminator(lineEnd: index, consumed: index + 2)
-            }
-        }
-        return LineTerminator(lineEnd: index, consumed: index + 1)
-    }
 
     /// 处理一整行，返回本行触发派发的事件（若有）
     private func handle(line: String) -> SSEEvent? {

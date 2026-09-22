@@ -3,7 +3,8 @@ import UIKit
 /// 底部输入栏：多行自增高文本框 + 麦克风 + 发送/停止。
 final class InputBarView: UIView {
 
-    var onSend: ((String) -> Void)?
+    var onSend: ((String) async -> Bool)?
+    var onTextChanged: ((String) -> Void)?
     var onStop: (() -> Void)?
     var onMicTap: (() -> Void)?
     var onHeightChange: (() -> Void)?
@@ -56,6 +57,8 @@ final class InputBarView: UIView {
 
     private var textViewHeight: NSLayoutConstraint!
     private var isStreaming = false
+    private var isSending = false
+    private var canSend = true
 
     var text: String { textView.text ?? "" }
 
@@ -110,6 +113,8 @@ final class InputBarView: UIView {
         updateActionButton()
     }
 
+    func setCanSend(_ enabled: Bool) { canSend = enabled; updateActionButton() }
+
     func setStreaming(_ streaming: Bool) {
         isStreaming = streaming
         updateActionButton()
@@ -131,8 +136,16 @@ final class InputBarView: UIView {
         }
         let content = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
-        onSend?(content)
-        setText("")
+        guard !isSending, canSend else { return }
+        isSending = true
+        updateActionButton()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let accepted = await self.onSend?(content) ?? false
+            if accepted && self.text.trimmingCharacters(in: .whitespacesAndNewlines) == content { self.setText("") }
+            self.isSending = false
+            self.updateActionButton()
+        }
     }
 
     private func updateActionButton() {
@@ -140,13 +153,14 @@ final class InputBarView: UIView {
         actionButton.setImage(UIImage(systemName: name), for: .normal)
         actionButton.accessibilityIdentifier = isStreaming ? "input.stop" : "input.send"
         let hasText = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        actionButton.isEnabled = isStreaming || hasText
+        actionButton.isEnabled = isStreaming || (hasText && canSend && !isSending)
     }
 }
 
 extension InputBarView: UITextViewDelegate {
 
     func textViewDidChange(_ textView: UITextView) {
+        onTextChanged?(text)
         placeholderLabel.isHidden = !textView.text.isEmpty
         let fitted = textView.sizeThatFits(CGSize(width: textView.bounds.width,
                                                   height: .greatestFiniteMagnitude)).height

@@ -168,7 +168,7 @@ struct ChatViewModelTests {
     @Test("发送后立刻出现用户消息与助手占位")
     func sendInsertsTwoMessages() async throws {
         let (viewModel, _, _, _, providerBox) = try makeViewModel(chunks: [.done(finishReason: "stop")])
-        viewModel.send("你好")
+        await viewModel.send("你好")
         #expect(viewModel.state.messages.count == 2)
         #expect(viewModel.state.messages[0].role == .user)
         #expect(viewModel.state.messages[0].text == "你好")
@@ -198,7 +198,7 @@ struct ChatViewModelTests {
         box.model = "new-model"
         box.systemPrompt = "new-prompt"
 
-        viewModel.send("hi")
+        await viewModel.send("hi")
 
         let provider = try #require(providerBox.current)
         // `provider.stream(request)` 是在 `startStream` 里起的 `Task { ... }` 内部
@@ -217,9 +217,9 @@ struct ChatViewModelTests {
     }
 
     @Test("空白输入不发送")
-    func blankInputIgnored() throws {
+    func blankInputIgnored() async throws {
         let (viewModel, _, _, _, _) = try makeViewModel(chunks: [])
-        viewModel.send("   \n ")
+        await viewModel.send("   \n ")
         #expect(viewModel.state.messages.isEmpty)
     }
 
@@ -233,7 +233,7 @@ struct ChatViewModelTests {
             if case .blocksPatched(_, let patch) = output { patches.append(patch) }
         }
 
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let provider = try #require(providerBox.current)
 
         // 两个文本增量都已经被消费端确认收下，但还没到节流帧回调
@@ -257,7 +257,7 @@ struct ChatViewModelTests {
         viewModel.onOutput = { output in
             if case .blocksPatched = output { patchCount += 1 }
         }
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let provider = try #require(providerBox.current)
 
         for _ in 0..<10 { await provider.deliverNext() }
@@ -271,7 +271,7 @@ struct ChatViewModelTests {
     @Test("节流器随流式启停")
     func throttleLifecycle() async throws {
         let (viewModel, throttle, _, _, providerBox) = try makeViewModel(chunks: [.done(finishReason: "stop")])
-        viewModel.send("hi")
+        await viewModel.send("hi")
         #expect(throttle.isRunning)
 
         let provider = try #require(providerBox.current)
@@ -305,7 +305,7 @@ struct ChatViewModelTests {
             requestConfigProvider: { (model: "deepseek-chat", systemPrompt: nil) },
             throttle: throttle)
 
-        viewModel?.send("hi")
+        await viewModel?.send("hi")
         #expect(throttle.isRunning)
 
         // 流还没结束就释放 ViewModel（对应场景：抽屉切会话时旧 ViewModel 该被回收，
@@ -327,7 +327,7 @@ struct ChatViewModelTests {
         viewModel.onOutput = { output in
             if case .reasoningUpdated(_, let text) = output { reasoning = text }
         }
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let provider = try #require(providerBox.current)
 
         await provider.deliverNext()
@@ -344,7 +344,7 @@ struct ChatViewModelTests {
             chunks: [.textDelta("完整回复"),
                      .usage(TokenUsage(prompt: 3, completion: 9)),
                      .done(finishReason: "stop")])
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let provider = try #require(providerBox.current)
 
         await provider.deliverNext()
@@ -363,7 +363,7 @@ struct ChatViewModelTests {
     func noWriteDuringStreaming() async throws {
         let (viewModel, throttle, repository, conversationID, providerBox) = try makeViewModel(
             chunks: [.textDelta("片段"), .done(finishReason: "stop")])
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let provider = try #require(providerBox.current)
 
         await provider.deliverNext()
@@ -389,7 +389,7 @@ struct ChatViewModelTests {
         viewModel.onOutput = { output in
             if case .failed(let error, _) = output { failure = error }
         }
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let provider = try #require(providerBox.current)
 
         await provider.deliverNext()
@@ -407,7 +407,7 @@ struct ChatViewModelTests {
     func stopMarksStopped() async throws {
         let (viewModel, throttle, _, _, providerBox) = try makeViewModel(
             chunks: [.textDelta("写到一半")])
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let provider = try #require(providerBox.current)
 
         await provider.deliverNext()
@@ -423,7 +423,7 @@ struct ChatViewModelTests {
     @Test("流式期间 canSend 为假")
     func canSendIsFalseWhileStreaming() async throws {
         let (viewModel, _, _, _, _) = try makeViewModel(chunks: [])
-        viewModel.send("hi")
+        await viewModel.send("hi")
         #expect(viewModel.state.isStreaming)
         #expect(!viewModel.state.canSend)
         viewModel.stop()
@@ -434,7 +434,7 @@ struct ChatViewModelTests {
     func loadHistory() async throws {
         let (viewModel, throttle, _, _, providerBox) = try makeViewModel(
             chunks: [.textDelta("历史回复"), .done(finishReason: "stop")])
-        viewModel.send("历史提问")
+        await viewModel.send("历史提问")
         let provider = try #require(providerBox.current)
 
         await provider.deliverNext()
@@ -451,7 +451,7 @@ struct ChatViewModelTests {
     func blocksForMessage() async throws {
         let (viewModel, throttle, _, _, providerBox) = try makeViewModel(
             chunks: [.textDelta("# 标题\n\n正文\n"), .done(finishReason: "stop")])
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let provider = try #require(providerBox.current)
 
         await provider.deliverNext()
@@ -469,11 +469,11 @@ struct ChatViewModelTests {
     @Test("流式进行中调用 retryLast 不产生副作用")
     func retryLastNoOpWhileStreaming() async throws {
         let (viewModel, _, _, _, _) = try makeViewModel(chunks: [.textDelta("续")])
-        viewModel.send("hi")
+        await viewModel.send("hi")
         #expect(viewModel.state.isStreaming)
 
         let messagesBefore = viewModel.state.messages
-        viewModel.retryLast()
+        await viewModel.retryLast()
         #expect(viewModel.state.messages == messagesBefore, "流式中的 retryLast 不该改变消息列表")
         #expect(viewModel.state.isStreaming)
 
@@ -488,7 +488,7 @@ struct ChatViewModelTests {
         let (viewModel, throttle, _, _, providerBox) = try makeViewModel(
             chunks: [.textDelta("一些内容"), .done(finishReason: "stop")])
 
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let firstProvider = try #require(providerBox.current)
         await firstProvider.deliverNext()
         throttle.fire()
@@ -505,7 +505,7 @@ struct ChatViewModelTests {
             }
         }
 
-        viewModel.retryLast()
+        await viewModel.retryLast()
         // retryLast 内部会重新调用 providerFactory，拿到这一轮新的替身
         let retryProvider = try #require(providerBox.current)
         await retryProvider.deliverNext()
@@ -527,7 +527,7 @@ struct ChatViewModelTests {
     func displayTextDuringStreamingReturnsAccumulatedText() async throws {
         let (viewModel, throttle, _, _, providerBox) = try makeViewModel(
             chunks: [.textDelta("正在生成的内容"), .textDelta("续"), .done(finishReason: "stop")])
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let provider = try #require(providerBox.current)
 
         await provider.deliverNext()
@@ -550,7 +550,7 @@ struct ChatViewModelTests {
     func displayTextAfterFinishMatchesText() async throws {
         let (viewModel, throttle, _, _, providerBox) = try makeViewModel(
             chunks: [.textDelta("完整回复"), .done(finishReason: "stop")])
-        viewModel.send("hi")
+        await viewModel.send("hi")
         let provider = try #require(providerBox.current)
 
         await provider.deliverNext()
@@ -563,22 +563,58 @@ struct ChatViewModelTests {
         #expect(viewModel.displayText(for: assistantID) == viewModel.state.messages.last?.text)
     }
 
-    /// send() 一次调用会插入两条消息并进入流式态，这些字段赋值应合并成一次
-    /// state 提交，避免下游对同一个逻辑动作应用多次快照/动画
-    @Test("send 一次调用只触发一次 stateChanged")
-    func sendFiresStateChangedOnce() async throws {
+    @Test("发送先禁用输入等待事务，保存成功后才进入生成态")
+    func sendPublishesPreparingThenStreaming() async throws {
         let (viewModel, _, _, _, providerBox) = try makeViewModel(chunks: [.done(finishReason: "stop")])
 
-        var stateChangeCount = 0
+        var states: [ChatViewModel.State] = []
         viewModel.onOutput = { output in
-            if case .stateChanged = output { stateChangeCount += 1 }
+            if case .stateChanged(let state) = output { states.append(state) }
         }
 
-        viewModel.send("hi")
-        #expect(stateChangeCount == 1)
+        await viewModel.send("hi")
+        #expect(states.count == 2)
+        #expect(states.first?.canSend == false)
+        #expect(states.first?.isStreaming == false)
+        #expect(states.first?.messages.isEmpty == true)
+        #expect(states.last?.isStreaming == true)
+        #expect(states.last?.messages.count == 2)
 
         let provider = try #require(providerBox.current)
         await provider.finish()
+        await waitForStreamEnd(viewModel)
+    }
+}
+
+extension ChatViewModelTests {
+    @Test("重新生成首个正文增量同时清空上一轮思考展示")
+    func replacementClearsOldReasoning() async throws {
+        let repository = GRDBChatRepository(queue: try AppDatabase.makeQueue(at: nil))
+        let id = try repository.createConversation(title: "test", provider: .deepSeek, model: "test").id
+        let throttle = ManualThrottle()
+        var current: GatedProvider?
+        var attempt = 0
+        let viewModel = ChatViewModel(conversationID: id, repository: repository, providerFactory: {
+            attempt += 1
+            let provider = GatedProvider(chunks: attempt == 1
+                ? [.reasoningDelta("旧思考"), .textDelta("旧正文"), .done(finishReason: "stop")]
+                : [.textDelta("新正文"), .done(finishReason: "stop")])
+            current = provider
+            return provider
+        }, requestConfigProvider: { ("test", nil) }, throttle: throttle)
+        #expect(await viewModel.send("hi"))
+        await current?.finish()
+        await waitForStreamEnd(viewModel)
+        #expect(await viewModel.retryLast())
+        var reasoningUpdates: [String] = []
+        viewModel.onOutput = { output in
+            if case .reasoningUpdated(_, let text) = output { reasoningUpdates.append(text) }
+        }
+        await current?.deliverNext()
+        throttle.fire()
+        #expect(reasoningUpdates.contains(""))
+        #expect(viewModel.displayReasoning(for: viewModel.state.messages.last!.id) == nil)
+        await current?.finish()
         await waitForStreamEnd(viewModel)
     }
 }

@@ -3,9 +3,8 @@ import GRDB
 import UIKit
 
 /// 依赖组装。整个工程里唯一知道具体实现类型的地方。
+@MainActor
 final class AppContainer {
-
-    static let shared = AppContainer()
 
     let settings = AppSettings()
     let repository: ChatRepository
@@ -15,25 +14,21 @@ final class AppContainer {
     let cache = AttributedCache()
     let pool = BlockViewPool()
 
-    private init() {
-        do {
-            let queue = try AppDatabase.makeQueue(at: try AppDatabase.defaultURL())
-            repository = GRDBChatRepository(queue: queue)
-        } catch {
-            // 建库失败时退回内存库，保证 App 仍可运行；这条日志是唯一线索——
-            // 没有它，用户看到的只是「消息发出去就消失、重启后历史清空」，
-            // 完全找不到是磁盘库建库失败导致悄悄降级到了内存库。
-            NSLog("[AppContainer] 磁盘数据库建库失败，退回内存库：\(error)")
-            do {
-                repository = GRDBChatRepository(queue: try AppDatabase.makeQueue(at: nil))
-            } catch {
-                // 内存库都建不起来，说明 GRDB/SQLite 本身出了问题，App 没有任何
-                // 数据层可用，没有意义继续运行。原来这里是 `try!`——裸崩时崩溃
-                // 报告只有一行「'try!' expression unexpectedly raised an error」，
-                // 看不出根因；改成显式 fatalError 把底层错误带出来，方便定位。
-                fatalError("[AppContainer] 内存数据库也建库失败，App 无法在没有可用数据层的情况下运行：\(error)")
-            }
-        }
+    lazy var generations = ChatGenerationCoordinator(repository: repository,
+        providerFactory: { [weak self] in self?.makeProvider() ?? MockProvider() },
+        configProvider: { [weak self] in (self?.settings.model ?? "", self?.settings.systemPrompt) },
+        background: UIKitBackgroundExecution())
+
+    private init(repository: ChatRepository) { self.repository = repository }
+
+    static func open() async throws -> AppContainer {
+        let repository = try await Task.detached(priority: .userInitiated) {
+            let queue = try AppDatabase.makeQueue(at: AppDatabase.defaultURL())
+            let repository = GRDBChatRepository(queue: queue)
+            try repository.recoverInterruptedGenerations()
+            return repository
+        }.value
+        return AppContainer(repository: repository)
     }
 
     /// 没配 Key 就走演示模式，保证 App 开箱可用
@@ -45,15 +40,7 @@ final class AppContainer {
     /// ChatViewModel 与 ChatViewController 都是主线程隔离的，工厂方法也要标注
     @MainActor
     func makeChatViewModel(conversationID: String) -> ChatViewModel {
-        ChatViewModel(conversationID: conversationID,
-                      repository: repository,
-                      providerFactory: { [weak self] in
-                          self?.makeProvider() ?? MockProvider()
-                      },
-                      requestConfigProvider: { [weak self] in
-                          (model: self?.settings.model ?? "", systemPrompt: self?.settings.systemPrompt)
-                      },
-                      throttle: DisplayLinkThrottle())
+        ChatViewModel(conversationID: conversationID, coordinator: generations, throttle: DisplayLinkThrottle())
     }
 
     @MainActor
@@ -65,14 +52,14 @@ final class AppContainer {
     }
 
     /// 启动时取最近一个会话，没有就新建
-    func currentOrNewConversationID() -> String {
-        if let latest = try? repository.allConversations().first {
+    func currentOrNewConversationID() throws -> String {
+        if let latest = try repository.allConversations().first {
             return latest.id
         }
-        let created = try? repository.createConversation(title: "新对话",
+        let created = try repository.createConversation(title: "新对话",
                                                          provider: settings.provider,
                                                          model: settings.model)
-        return created?.id ?? UUID().uuidString
+        return created.id
     }
 }
 
@@ -87,13 +74,13 @@ extension AppContainer {
 
     /// 抽屉 + 聊天页的完整根控制器
     @MainActor
-    func makeRootViewController() -> UIViewController {
-        let listViewModel = ConversationListViewModel(repository: repository, settings: settings)
+    func makeRootViewController() throws -> UIViewController {
+        let listViewModel = ConversationListViewModel(repository: repository, settings: settings, generations: generations)
         let list = ConversationListViewController(viewModel: listViewModel)
 
         // 记录聊天页当前显示的会话 id：删除会话时要判断删的是不是这一个，
         // 是的话就把聊天页切走，否则僵尸聊天页发消息会因外键约束静默丢库（insertMessage 用了 try?）
-        var currentConversationID = currentOrNewConversationID()
+        var currentConversationID = try currentOrNewConversationID()
 
         let chat = makeChatViewController(conversationID: currentConversationID)
         let navigation = UINavigationController(rootViewController: chat)
@@ -117,7 +104,15 @@ extension AppContainer {
             guard let self, let drawer, deletedID == currentConversationID else { return }
             // 聊天页正显示的会话被删了：换到最近的一个会话（没有就新建），
             // 避免聊天页停留在一个 DB 里已经不存在的 conversationId 上
-            let newID = self.currentOrNewConversationID()
+            guard let newID = try? self.currentOrNewConversationID() else {
+                let empty = UIViewController()
+                empty.view.backgroundColor = .systemBackground
+                drawer.setContent(empty)
+                let alert = UIAlertController(title: "无法加载会话", message: "本地存储暂时不可用，请重新打开应用后重试", preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "好", style: .default))
+                drawer.present(alert, animated: true)
+                return
+            }
             currentConversationID = newID
             let newChat = self.makeChatViewController(conversationID: newID)
             newChat.navigationItem.leftBarButtonItem = self.makeMenuItem(drawer: drawer)

@@ -29,11 +29,11 @@ struct ConversationListViewModelTests {
     }
 
     @Test("删除会话后从列表消失")
-    func deleteConversation() throws {
+    func deleteConversation() async throws {
         let (viewModel, _) = try make()
         viewModel.start()
         let id = viewModel.createConversation()
-        viewModel.delete(id: id)
+        try await viewModel.delete(id: id)
         #expect(!viewModel.items.contains { $0.id == id })
     }
 

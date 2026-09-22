@@ -45,7 +45,7 @@ struct OpenAIAdapterTests {
     @Test("finish_reason 被带出")
     func finishReason() throws {
         let result = try chunks([#"{"choices":[{"delta":{},"finish_reason":"stop"}]}"#])
-        #expect(result == [.done(finishReason: "stop")])
+        #expect(result == [.finishReason("stop")])
     }
 
     @Test("末帧 usage 被映射")
@@ -66,7 +66,7 @@ struct OpenAIAdapterTests {
             .textDelta("Hel"),
             .textDelta("lo"),
             .usage(TokenUsage(prompt: 1, completion: 2)),
-            .done(finishReason: "stop"),
+            .finishReason("stop"),
             .done(finishReason: nil),
         ])
     }

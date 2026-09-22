@@ -73,7 +73,8 @@ final class AssistantMessageCell: UITableViewCell {
                    errorText: String?,
                    pool: BlockViewPool,
                    cache: AttributedCache,
-                   renderer: AttributedRenderer) {
+                   renderer: AttributedRenderer,
+                   canRetry: Bool = true, retryTitle: String = "重新生成") {
         let stack: BlockStackView
         if let existing = stackView {
             stack = existing
@@ -93,7 +94,8 @@ final class AssistantMessageCell: UITableViewCell {
         errorLabel.text = errorText
 
         // 只有失败或被中途停止的消息才展示「重新生成」入口
-        retryButton.isHidden = (status != .failed && status != .stopped)
+        retryButton.isHidden = !canRetry || (status != .failed && status != .stopped && status != .interrupted)
+        retryButton.setTitle(retryTitle, for: .normal)
 
         setNeedsLayout()
     }

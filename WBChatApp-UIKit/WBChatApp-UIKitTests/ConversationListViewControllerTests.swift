@@ -17,7 +17,7 @@ struct ConversationListViewControllerTests {
     }
 
     @Test("左滑删除会触发 onDelete，且携带的就是被删的那个 id")
-    func onDeleteFiresWithDeletedID() throws {
+    func onDeleteFiresWithDeletedID() async throws {
         let (vc, viewModel) = try make()
         _ = vc.view // 触发 viewDidLoad：接上 onItemsChanged -> applySnapshot 这条通路
 
@@ -38,6 +38,7 @@ struct ConversationListViewControllerTests {
 
         deleteAction.handler(deleteAction, UIView()) { _ in }
 
+        for _ in 0..<200 where deletedID == nil { try await Task.sleep(for: .milliseconds(5)) }
         #expect(deletedID == id)
         // 顺带确认 DB 真的删了（onDelete 是在 viewModel.delete(id:) 之后触发的）
         #expect(!viewModel.items.contains { $0.id == id })

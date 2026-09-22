@@ -3,7 +3,7 @@ import GRDB
 
 /// 消息在生命周期中的状态：流式中 / 已完成 / 被用户中止 / 失败
 enum MessageStatus: String, Codable, Sendable {
-    case streaming, completed, stopped, failed
+    case streaming, completed, stopped, failed, interrupted
 }
 
 /// 会话记录，对应 `conversation` 表
@@ -38,6 +38,10 @@ struct MessageRecord: Codable, FetchableRecord, MutablePersistableRecord,
     var promptTokens: Int?
     var completionTokens: Int?
     var createdAt: Double
+    var generationID: String? = nil
+    var snapshotSequence: Int64 = 0
+    var checkpointAt: Double? = nil
+    var endReason: String? = nil
 
     var role: ChatRole { ChatRole(rawValue: roleRaw) ?? .user }
     var status: MessageStatus { MessageStatus(rawValue: statusRaw) ?? .completed }

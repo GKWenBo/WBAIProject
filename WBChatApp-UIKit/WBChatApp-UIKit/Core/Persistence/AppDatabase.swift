@@ -62,6 +62,15 @@ enum AppDatabase {
                           columns: ["conversationId", "ordinal"])
         }
 
+        migrator.registerMigration("v2_生成快照与恢复") { db in
+            try db.alter(table: "message") { table in
+                table.add(column: "generationID", .text)
+                table.add(column: "snapshotSequence", .integer).notNull().defaults(to: 0)
+                table.add(column: "checkpointAt", .double)
+                table.add(column: "endReason", .text)
+            }
+        }
+
         return migrator
     }
 }

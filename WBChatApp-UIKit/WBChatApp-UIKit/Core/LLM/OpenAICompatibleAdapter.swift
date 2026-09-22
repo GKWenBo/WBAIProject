@@ -66,7 +66,7 @@ struct OpenAIChunkMapper: SSEChunkMapper {
                                                 completion: usage.completion_tokens)))
             }
             if let reason = choice.finish_reason {
-                chunks.append(.done(finishReason: reason))
+                chunks.append(.finishReason(reason))
             }
         } else if let usage = response.usage {
             // 有些实现把 usage 单独放一帧，此时 choices 为空数组

@@ -75,7 +75,10 @@ final class AutoScrollController {
         mode = .pinned
     }
 
-    /// 用户发出新消息时无条件回到贴底
+    /// 返回会话时恢复离开前的阅读模式。
+    func restore(pinned: Bool) { mode = pinned ? .pinned : .detached }
+
+    /// 用户发出新消息时无条件回到贴底。
     func didSendMessage() {
         mode = .pinned
     }

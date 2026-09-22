@@ -21,6 +21,8 @@ final class ConversationListViewModel {
 
     private let repository: ChatRepository
     private let settings: AppSettings
+    private let generations: ChatGenerationCoordinator?
+    private var activityObservation: UUID?
     /// 必须持有，否则 ARC 释放时观察会立即静默取消
     private var observation: AnyDatabaseCancellable?
 
@@ -30,14 +32,16 @@ final class ConversationListViewModel {
         return formatter
     }()
 
-    init(repository: ChatRepository, settings: AppSettings) {
+    init(repository: ChatRepository, settings: AppSettings, generations: ChatGenerationCoordinator? = nil) {
         self.repository = repository
         self.settings = settings
+        self.generations = generations
     }
 
     /// 用 ValueObservation 订阅，数据库一变列表自动刷新
     func start() {
         reload()
+        if activityObservation == nil { activityObservation = generations?.observeActivity { [weak self] in self?.reload() } }
         observation = repository.observeConversations(
             onError: { error in
                 // GRDB 语义：onError 触发后观察即终止、不会自动恢复，也不会再有后续 onChange。
@@ -45,7 +49,7 @@ final class ConversationListViewModel {
                 print("[ConversationListViewModel] 会话列表观察出错，已终止: \(error)")
             },
             onChange: { [weak self] records in
-                self?.items = records.map(Self.item(from:))
+                self?.items = records.map { self?.item(from: $0) ?? Self.basicItem(from: $0) }
             })
     }
 
@@ -58,8 +62,9 @@ final class ConversationListViewModel {
         return record?.id ?? ""
     }
 
-    func delete(id: String) {
-        try? repository.deleteConversation(id: id)
+    func delete(id: String) async throws {
+        if let generations { try await generations.deleteConversation(id) }
+        else { try await GenerationStore(repository: repository).perform { try $0.deleteConversation(id: id) } }
         reload()
     }
 
@@ -71,10 +76,22 @@ final class ConversationListViewModel {
     }
 
     private func reload() {
-        items = ((try? repository.allConversations()) ?? []).map(Self.item(from:))
+        items = ((try? repository.allConversations()) ?? []).map { item(from: $0) }
     }
 
-    private static func item(from record: ConversationRecord) -> Item {
+    deinit {
+        if let activityObservation, let generations {
+            Task { @MainActor in generations.removeActivityObserver(activityObservation) }
+        }
+    }
+
+    private func item(from record: ConversationRecord) -> Item {
+        let basic = Self.basicItem(from: record)
+        return Item(id: basic.id, title: basic.title,
+                    subtitle: generations?.isGenerating(record.id) == true ? "生成中…" : basic.subtitle)
+    }
+
+    private static func basicItem(from record: ConversationRecord) -> Item {
         Item(id: record.id,
              title: record.title,
              subtitle: formatter.string(from: Date(timeIntervalSince1970: record.updatedAt)))
