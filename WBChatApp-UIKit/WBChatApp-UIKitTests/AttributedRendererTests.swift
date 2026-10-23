@@ -118,6 +118,40 @@ struct AttributedRendererTests {
         #expect(renderer.render(target).isEqual(to: renderer.render(target)))
     }
 
+    // MARK: - 段落样式复用
+
+    @Test("不同段落块共用同一个段落样式实例，不每次新建")
+    func bodyParagraphStyleIsShared() {
+        let first = renderer.render(block(.paragraph, "甲"))
+        let second = renderer.render(block(.paragraph, "乙"))
+        let a = first.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        let b = second.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        #expect(a != nil)
+        #expect(a === b, "每帧新建段落样式会让上层的属性 run 比对退化成逐属性比较")
+        #expect(a?.lineSpacing == theme.lineSpacing)
+        #expect(a?.headIndent == 0)
+    }
+
+    @Test("列表块用带缩进的段落样式，同样复用实例")
+    func listParagraphStyleIsSharedAndIndented() {
+        let first = renderer.render(block(.list(ordered: false), "- 甲"))
+        let second = renderer.render(block(.list(ordered: true), "1. 乙"))
+        let a = first.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        let b = second.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        #expect(a != nil)
+        #expect(a === b)
+        #expect(a?.headIndent == theme.listIndent)
+    }
+
+    @Test("列表与段落用的是两个不同的样式实例")
+    func listAndBodyStylesAreDistinct() {
+        let paragraph = renderer.render(block(.paragraph, "甲"))
+        let list = renderer.render(block(.list(ordered: false), "- 甲"))
+        let a = paragraph.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        let b = list.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        #expect(a !== b)
+    }
+
     // MARK: - 回归：列表项内多个子块不应粘连
 
     @Test("嵌套列表：子列表与父项文字之间要有换行，不能粘连")

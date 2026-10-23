@@ -15,9 +15,33 @@ final class AttributedRenderer {
     private let theme: MarkdownTheme
     private let highlighter: CodeHighlighter
 
+    /// 段落样式只有两个变体：默认、列表（带首行缩进）。在 init 时各建一份复用，
+    /// 不在每次渲染里新建。
+    ///
+    /// 两个理由：一是未闭合块每帧都要重渲染，每帧新建样式对象纯属浪费；二是上层
+    /// 要靠「逐个比对属性 run」判断新旧属性串的前缀是否相同，共享同一实例能让这个
+    /// 比对落在指针相等上，而不是退化成「值相等但对象不同」的逐属性比较。
+    ///
+    /// 不变量：这两个实例建好之后**永不修改**。它们会作为 `.paragraphStyle` 的值
+    /// 被写进所有属性串，任何一次就地修改都会同时污染全部已渲染内容。
+    private let bodyParagraphStyle: NSParagraphStyle
+    private let listParagraphStyle: NSParagraphStyle
+
     init(theme: MarkdownTheme = .default, highlighter: CodeHighlighter = CodeHighlighter()) {
         self.theme = theme
         self.highlighter = highlighter
+        bodyParagraphStyle = Self.makeParagraphStyle(lineSpacing: theme.lineSpacing,
+                                                     headIndent: 0)
+        listParagraphStyle = Self.makeParagraphStyle(lineSpacing: theme.lineSpacing,
+                                                     headIndent: theme.listIndent)
+    }
+
+    private static func makeParagraphStyle(lineSpacing: CGFloat,
+                                           headIndent: CGFloat) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = lineSpacing
+        style.headIndent = headIndent
+        return style
     }
 
     func render(_ block: MarkdownBlock) -> NSAttributedString {
@@ -219,10 +243,11 @@ final class AttributedRenderer {
     private func applyParagraphStyle(to attributed: NSMutableAttributedString,
                                      kind: MarkdownBlockKind) {
         guard attributed.length > 0 else { return }
-        let style = NSMutableParagraphStyle()
-        style.lineSpacing = theme.lineSpacing
+        let style: NSParagraphStyle
         if case .list = kind {
-            style.headIndent = theme.listIndent
+            style = listParagraphStyle
+        } else {
+            style = bodyParagraphStyle
         }
         attributed.addAttribute(.paragraphStyle, value: style,
                                 range: NSRange(location: 0, length: attributed.length))
