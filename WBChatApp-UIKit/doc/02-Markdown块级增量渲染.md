@@ -215,7 +215,17 @@ var usesTextKit2: Bool { textView.textLayoutManager != nil }
 1. **`BlockStackView` 自己的槽位缓存**（`cachedHeights: [CGFloat?]`，`ensureHeights` 维护）：与 `blockViews` 一一对应，`nil` 表示待重算。`appendView` 只给新追加的槽位置 `nil`；`updateView`（就地固化上一帧的未闭合块，或未闭合块继续追加文字）只把**它自己那一个槽位**置 `nil`；其余已闭合槽位的缓存值原样保留，不会被批量清空。只有渲染宽度变化（`cachedWidth != width`）时才整体重建整个数组，强制全部槽位重新测量——不同宽度下的高度本就需要重新算，这不是失效，是必要的重算。
 2. **`AttributedCache.height(for:width:render:measure:)`**（按 `cacheKey` + 量化后的宽度作为键的全局缓存，与某个 `BlockStackView` 实例无关，`NSCache` 支撑，能跨 cell 复用命中）：`ensureHeights` 对槽位缓存里为 `nil` 的项调用 `computeHeight`——已闭合块（`block.isSealed`）才会走到这层缓存；唯一的未闭合块永远绕开它，直接调 `view.heightThatFits(width: width)` 每帧重测，不写入任何缓存（它的内容每帧都在变，缓存了也马上作废）。
 
-两层叠加的效果：一个已闭合块的高度，在同一宽度下只会被真正测量一次（此后无论是命中第 1 层的槽位缓存，还是退化到命中第 2 层的全局缓存，都不会再碰 `UITextView`/TextKit）；宽度变化或该块被撤回（流中止）时才会让对应槽位重新计算。
+两层叠加的效果：一个已闭合块的高度，在同一宽度下只会被真正测量一次（此后无论是命中第 1 层的槽位缓存，还是退化到命中第 2 层的全局缓存，都不会再重新排版）；宽度变化或该块被撤回（流中止）时才会让对应槽位重新计算。
+
+### 真正测量那一次用的是什么
+
+缓存未命中时，`computeHeight` 不再去测活视图，而是交给 `TextKitMeasurer`——一套**没有视图**的 TextKit 2 栈（`NSTextContentStorage` + `NSTextLayoutManager` + `NSTextContainer`），量完读 `usageBoundsForTextContainer`。块级测高因此变成纯值计算，不再要求「先有一个配置好的 `UITextView`」。
+
+这里最初按 CoreText（`CTFramesetterSuggestFrameSizeWithConstraints`）实现过一版，实测与视图相差 0~3pt，而且误差随字号与行数变化、不是一个能补偿掉的固定偏移——TextKit 对每个 line fragment 的取整规则 CoreText 复现不出来。块视图内部的 `UITextView` 本来就由 TextKit 2 驱动，**用同一个引擎量，一致性是结构性的而不是靠调参凑出来的**。`TextKitMeasurerParityTests` 用 16 组语料 × 5 种宽度把这条锁住，`TextKitMeasurer.canMeasure(_:)` 是允许名单的唯一事实来源，名单外的类型（分割线）回退到视图测量。
+
+两个前提写在测量器的注释里：块视图的 `textContainerInset = .zero` 与 `lineFragmentPadding = 0`。这两项配置一旦被改掉而测量器没跟着改，高度就会悄悄算错，所以 Debug 下还留了一道影子校验——两条路都算一遍，对不上直接断言失败。
+
+未闭合块仍然走视图测量：它的属性串这一帧刚在 `configure` 里设进视图，为了测高再渲染一份纯属浪费，而未闭合块必然有活视图在手。
 
 ### `beginUpdates`/`endUpdates` 的代价分析
 
@@ -248,6 +258,8 @@ UIView.performWithoutAnimation {
 `ChatViewController` 为 `heightForRowAt` 的离屏测量准备了两个**常驻**的测量专用 cell（`measuringAssistantCell`/`measuringUserCell`），而不是每次测量都 `AssistantMessageCell(...)` 新建一个。原因：`AssistantMessageCell` 内部的 `BlockStackView` 持有的是全局共享的 `BlockViewPool`（同一个池子也服务于屏幕上真实显示的 cell）。如果每次测量都新建一个临时 cell，它内部的 `BlockStackView` 会从共享池借走块视图，测量完这个临时 cell 被丢弃、ARC 释放，但它借走的视图从未被 `recycle(_:)` 归还——池子被逐渐"掏空"，最终真实滚动时的 cell 复用退化成"只能不断新建"，恰好是引入复用池想要规避的开销。
 
 修复方式是让常驻测量 cell 在每次 `configure` 之前先调用 `prepareForReuse()`，把上一次测量借走的块视图先还给池子，再借新的，做到收支平衡。项目里专门有 `BlockViewPoolBalanceTests` 用 `idleCountForTesting(_:)`（只读访问器）验证这一点。
+
+**这套机制现在只剩一半必要。** 块级测高已经交给 `TextKitMeasurer`，不再需要活视图；但 `AssistantMessageCell.heightThatFits` 还要量 `reasoningView`、`errorLabel`、「重新生成」按钮，`UserMessageCell` 的气泡也一样，所以 cell 级测高仍然依赖常驻测量 cell。等这几处也改成无视图测量，常驻测量 cell 与这里的收支平衡逻辑就可以一并删掉——这是下一步，不在本轮范围内。
 
 ## 8. 实测数据
 
