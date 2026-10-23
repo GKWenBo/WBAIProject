@@ -7,8 +7,9 @@ final class CodeBlockView: UIView, BlockView {
 
     var onCopy: ((String) -> Void)?
 
-    private static let headerHeight: CGFloat = 32
-    private static let contentInset: CGFloat = 12
+    // 尺寸常量的单一事实来源在 BlockMetrics：离屏测量要用到完全相同的数字。
+    private static let headerHeight = BlockMetrics.codeHeaderHeight
+    private static let contentInset = BlockMetrics.codeContentInset
 
     private let container: UIView = {
         let view = UIView()
@@ -140,7 +141,7 @@ final class CodeBlockView: UIView, BlockView {
     func heightThatFits(width: CGFloat) -> CGFloat {
         let size = textView.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude,
                                                 height: .greatestFiniteMagnitude))
-        return ceil(size.height) + Self.headerHeight + Self.contentInset
+        return ceil(size.height) + BlockMetrics.codeChromeHeight
     }
 
     func prepareForReuse() {

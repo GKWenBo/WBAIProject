@@ -42,6 +42,10 @@ final class MarkdownTextBlockView: UIView, BlockView {
 
     private var leadingConstraint: NSLayoutConstraint!
 
+    /// 当前绑定的块类型。布局缩进与可用宽度都由它经 `BlockMetrics` 推出，
+    /// 保证「配置约束」和「算高度」用的是同一个算式。
+    private var blockKind: MarkdownBlockKind = .paragraph
+
     /// 供测试断言：确认没有意外退回 TextKit 1
     var usesTextKit2: Bool { textView.textLayoutManager != nil }
 
@@ -103,15 +107,14 @@ final class MarkdownTextBlockView: UIView, BlockView {
                    renderer: AttributedRenderer) {
         lastTextUpdateForTesting = textView.applyIncrementally(attributed)
 
-        let isQuote = block.kind == .blockQuote
-        quoteBar.isHidden = !isQuote
-        leadingConstraint.constant = isQuote ? MarkdownTheme.default.quoteBarWidth + 8 : 0
+        blockKind = block.kind
+        quoteBar.isHidden = block.kind != .blockQuote
+        leadingConstraint.constant = BlockMetrics.textLeadingInset(for: block.kind)
     }
 
     func heightThatFits(width: CGFloat) -> CGFloat {
         heightMeasureCountForTesting += 1
-        let inset = quoteBar.isHidden ? 0 : MarkdownTheme.default.quoteBarWidth + 8
-        let available = max(1, width - inset)
+        let available = BlockMetrics.textContentWidth(for: blockKind, in: width)
         let size = textView.sizeThatFits(CGSize(width: available,
                                                 height: .greatestFiniteMagnitude))
         return ceil(size.height)
@@ -123,6 +126,7 @@ final class MarkdownTextBlockView: UIView, BlockView {
         leadingConstraint.constant = 0
         onLinkTap = nil
         lastTextUpdateForTesting = nil
+        blockKind = .paragraph
     }
 
     // MARK: - 链接点击
