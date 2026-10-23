@@ -64,8 +64,17 @@ final class CodeBlockView: UIView, BlockView {
     /// 供测试断言
     var languageText: String { languageLabel.text ?? "" }
 
+    /// 供测试断言：上一次文本更新走的是增量还是全量路径。
+    /// 未闭合的代码块每帧都在追加，这里应该稳定命中增量路径。
+    private(set) var lastTextUpdateForTesting: TextUpdateKind?
+
     /// 供测试断言/设置：读取当前剥掉围栏的代码，或直接写入滚动位置以模拟横向滚动
     var codeForTesting: String { code }
+
+    /// 供测试断言当前展示的属性串（含高亮属性），验证增量替换没留下陈旧属性
+    var currentAttributedForTesting: NSAttributedString {
+        textView.attributedText ?? NSAttributedString()
+    }
     var contentOffsetForTesting: CGPoint {
         get { scrollView.contentOffset }
         set { scrollView.contentOffset = newValue }
@@ -119,7 +128,7 @@ final class CodeBlockView: UIView, BlockView {
     func configure(block: MarkdownBlock,
                    attributed: NSAttributedString,
                    renderer: AttributedRenderer) {
-        textView.attributedText = attributed
+        lastTextUpdateForTesting = textView.applyIncrementally(attributed)
         code = renderer.codeText(of: block)
         if case .codeFence(let language) = block.kind {
             languageLabel.text = language ?? "纯文本"
@@ -140,6 +149,7 @@ final class CodeBlockView: UIView, BlockView {
         code = ""
         onCopy = nil
         scrollView.contentOffset = .zero
+        lastTextUpdateForTesting = nil
     }
 
     // MARK: - 复制

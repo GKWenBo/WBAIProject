@@ -5,8 +5,13 @@ import UIKit
 /// 内部是一个非编辑态的 `UITextView`，在 iOS 16+ 默认由 **TextKit 2** 驱动。
 ///
 /// ⚠️ 全类禁止访问 `textView.layoutManager` 与 `textView.textStorage`——
-/// 只要碰一次，UIKit 就会静默回退到 TextKit 1，增量排版的收益全部作废。
-/// 需要底层能力时一律走 `textLayoutManager` / `textContentStorage`。
+/// 只要碰一次，UIKit 就会静默回退到 TextKit 1。两套引擎在换行、断字上有细微行为
+/// 差异，而降级路径没有任何文档也没有任何警告，一旦发生只会表现为难以归因的排版
+/// 变化。需要底层能力时一律走 `textLayoutManager` / `textContentStorage`。
+///
+/// 注意区分：`applyIncrementally(_:)` 里用到的 `NSTextContentStorage.textStorage`
+/// 是 TextKit 2 自己的后备存储，与上面禁止的 `UITextView.textStorage` 不是一个东西，
+/// 不会触发降级。`usesTextKit2` 哨兵属性与对应测试盯着这条界线。
 final class MarkdownTextBlockView: UIView, BlockView {
 
     static let viewKind: BlockViewKind = .text
@@ -40,6 +45,10 @@ final class MarkdownTextBlockView: UIView, BlockView {
     /// 供测试断言：确认没有意外退回 TextKit 1
     var usesTextKit2: Bool { textView.textLayoutManager != nil }
 
+    /// 供测试断言：上一次文本更新走的是增量还是全量路径，
+    /// 用来确认流式追加确实命中增量路径，而不是一直在回退。
+    private(set) var lastTextUpdateForTesting: TextUpdateKind?
+
     /// 供测试断言：`heightThatFits` 被实际调用（触发 TextKit 测量）的次数。
     /// 用来验证 `AttributedCache`/`BlockStackView` 的高度缓存确实生效——
     /// 已闭合块的视图在缓存命中时不应该再走到这里。
@@ -47,6 +56,12 @@ final class MarkdownTextBlockView: UIView, BlockView {
 
     /// 供测试断言当前内容
     var currentTextForTesting: String { textView.attributedText?.string ?? "" }
+
+    /// 供测试断言当前内容连同属性。增量替换最大的风险就是「字符对了但属性是旧的」，
+    /// 只比字符串看不出来。
+    var currentAttributedForTesting: NSAttributedString {
+        textView.attributedText ?? NSAttributedString()
+    }
 
     /// 供测试断言：引用块竖条是否隐藏、缩进常量的当前值
     var quoteBarHiddenForTesting: Bool { quoteBar.isHidden }
@@ -86,7 +101,7 @@ final class MarkdownTextBlockView: UIView, BlockView {
     func configure(block: MarkdownBlock,
                    attributed: NSAttributedString,
                    renderer: AttributedRenderer) {
-        textView.attributedText = attributed
+        lastTextUpdateForTesting = textView.applyIncrementally(attributed)
 
         let isQuote = block.kind == .blockQuote
         quoteBar.isHidden = !isQuote
@@ -107,6 +122,7 @@ final class MarkdownTextBlockView: UIView, BlockView {
         quoteBar.isHidden = true
         leadingConstraint.constant = 0
         onLinkTap = nil
+        lastTextUpdateForTesting = nil
     }
 
     // MARK: - 链接点击

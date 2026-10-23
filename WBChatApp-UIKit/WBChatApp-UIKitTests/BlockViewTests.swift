@@ -115,6 +115,96 @@ struct BlockViewTests {
         #expect(view.currentTextForTesting.isEmpty)
     }
 
+    // MARK: - TextKit 2 增量追加排版
+
+    @Test("多次增量更新后仍然是 TextKit 2，没有静默降级")
+    func incrementalUpdatesKeepTextKit2() {
+        let view = MarkdownTextBlockView()
+        for length in 1...20 {
+            configure(view, block(.paragraph, String(repeating: "文字", count: length),
+                                  sealed: false))
+        }
+        #expect(view.usesTextKit2)
+    }
+
+    @Test("流式追加命中增量路径，而不是一直回退到整体替换")
+    func streamingAppendTakesIncrementalPath() {
+        let view = MarkdownTextBlockView()
+        configure(view, block(.paragraph, "开头", sealed: false))
+        #expect(view.lastTextUpdateForTesting == .full, "首次配置时没有旧内容可复用")
+
+        configure(view, block(.paragraph, "开头的后续", sealed: false))
+        guard case .incremental(let from)? = view.lastTextUpdateForTesting else {
+            Issue.record("纯追加应走增量路径，实际为 \(String(describing: view.lastTextUpdateForTesting))")
+            return
+        }
+        #expect(from > 0)
+    }
+
+    @Test("逐字追加过程中，每一步的属性串都等于全新渲染的结果")
+    func incrementalContentMatchesFullRender() {
+        let view = MarkdownTextBlockView()
+        let full = "这是一段**带格式**的文字，还有 `code` 与[链接](https://example.com)。"
+
+        for length in 1...full.count {
+            let target = block(.paragraph, String(full.prefix(length)), sealed: false)
+            configure(view, target)
+            let expected = renderer.render(target)
+            #expect(view.currentAttributedForTesting.isEqual(to: expected),
+                    "第 \(length) 步内容与全新渲染不一致")
+        }
+    }
+
+    @Test("加粗被闭合时不留下陈旧属性")
+    func closingEmphasisLeavesNoStaleAttributes() {
+        let view = MarkdownTextBlockView()
+        configure(view, block(.paragraph, "前**粗", sealed: false))
+        let closed = block(.paragraph, "前**粗**", sealed: false)
+        configure(view, closed)
+        #expect(view.currentAttributedForTesting.isEqual(to: renderer.render(closed)))
+    }
+
+    @Test("增量更新后高度跟着变，排版确实被刷新了")
+    func heightReflectsIncrementalUpdate() {
+        let view = MarkdownTextBlockView()
+        configure(view, block(.paragraph, "短", sealed: false))
+        let shortHeight = view.heightThatFits(width: 200)
+
+        configure(view, block(.paragraph, "短" + String(repeating: "很长的一段文字。", count: 30),
+                              sealed: false))
+        #expect(view.heightThatFits(width: 200) > shortHeight)
+    }
+
+    @Test("prepareForReuse 之后首次配置走整体替换")
+    func reuseResetsToFullReplacement() {
+        let view = MarkdownTextBlockView()
+        configure(view, block(.paragraph, "第一条消息", sealed: false))
+        configure(view, block(.paragraph, "第一条消息继续", sealed: false))
+        view.prepareForReuse()
+        #expect(view.lastTextUpdateForTesting == nil)
+
+        configure(view, block(.paragraph, "换绑到另一条消息"))
+        #expect(view.lastTextUpdateForTesting == .full)
+    }
+
+    @Test("代码块逐行追加同样走增量且内容正确")
+    func codeBlockAppendsIncrementally() {
+        let view = CodeBlockView()
+        let lines = ["let a = 1", "let b = 2", "// 注释", "let c = a + b"]
+
+        for count in 1...lines.count {
+            let raw = "```swift\n" + lines.prefix(count).joined(separator: "\n")
+            let target = block(.codeFence(language: "swift"), raw, sealed: false)
+            configure(view, target)
+            #expect(view.currentAttributedForTesting.isEqual(to: renderer.render(target)),
+                    "第 \(count) 行后内容与全新渲染不一致")
+        }
+        guard case .incremental? = view.lastTextUpdateForTesting else {
+            Issue.record("代码块逐行追加应走增量路径")
+            return
+        }
+    }
+
     // MARK: - Important 1：viewKind 单一事实来源
 
     @Test("三个块视图实现类各自声明 viewKind")
