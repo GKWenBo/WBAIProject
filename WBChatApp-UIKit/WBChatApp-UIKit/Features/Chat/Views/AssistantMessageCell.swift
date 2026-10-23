@@ -63,10 +63,11 @@ final class AssistantMessageCell: UITableViewCell {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("不支持 Storyboard") }
 
-    /// - Note: `pool` / `cache` / `renderer` 只在 cell 首次创建内部的 `BlockStackView`
-    ///   时生效；cell 被复用（第二次及以后调用本方法）时会沿用首次捕获的那几个实例，
-    ///   本次传入的参数会被静默忽略。调用方应始终传同一份实例（当前所有调用方也确实
-    ///   只用同一份单例），否则容易造成「以为换了池/缓存/渲染器实际上没换」的误解。
+    /// - Note: `pool` / `cache` / `renderer` / `measurer` 只在 cell 首次创建内部的
+    ///   `BlockStackView` 时生效；cell 被复用（第二次及以后调用本方法）时会沿用首次
+    ///   捕获的那几个实例，本次传入的参数会被静默忽略。调用方应始终传同一份实例
+    ///   （当前所有调用方也确实只用同一份单例），否则容易造成「以为换了池/缓存/
+    ///   渲染器/测量器实际上没换」的误解。
     func configure(blocks: [MarkdownBlock],
                    reasoning: String?,
                    status: MessageStatus,
@@ -74,12 +75,14 @@ final class AssistantMessageCell: UITableViewCell {
                    pool: BlockViewPool,
                    cache: AttributedCache,
                    renderer: AttributedRenderer,
+                   measurer: TextKitMeasurer,
                    canRetry: Bool = true, retryTitle: String = "重新生成") {
         let stack: BlockStackView
         if let existing = stackView {
             stack = existing
         } else {
-            stack = BlockStackView(pool: pool, cache: cache, renderer: renderer)
+            stack = BlockStackView(pool: pool, cache: cache,
+                                   renderer: renderer, measurer: measurer)
             contentView.addSubview(stack)
             stackView = stack
         }

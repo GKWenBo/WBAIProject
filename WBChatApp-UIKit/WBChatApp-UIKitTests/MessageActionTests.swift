@@ -167,7 +167,8 @@ struct AssistantMessageCellRetryTests {
 
     private func configure(_ cell: AssistantMessageCell, status: MessageStatus) {
         cell.configure(blocks: [], reasoning: nil, status: status, errorText: nil,
-                       pool: BlockViewPool(), cache: AttributedCache(), renderer: AttributedRenderer())
+                       pool: BlockViewPool(), cache: AttributedCache(), renderer: AttributedRenderer(),
+                       measurer: TextKitMeasurer())
     }
 
     private func retryButton(in cell: AssistantMessageCell) -> UIButton? {

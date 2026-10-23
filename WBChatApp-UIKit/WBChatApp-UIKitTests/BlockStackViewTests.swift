@@ -9,7 +9,8 @@ struct BlockStackViewTests {
     private func makeStack() -> BlockStackView {
         BlockStackView(pool: BlockViewPool(),
                        cache: AttributedCache(),
-                       renderer: AttributedRenderer())
+                       renderer: AttributedRenderer(),
+                       measurer: TextKitMeasurer())
     }
 
     private func sealed(_ ordinal: Int, _ text: String) -> MarkdownBlock {
@@ -140,6 +141,29 @@ struct BlockStackViewTests {
                 "已闭合块的高度应该只测量一次；若每帧都重测，说明高度缓存被流式补丁绕过了")
     }
 
+    @Test("已闭合块的高度交给测量器算，且只算一次")
+    func sealedBlockGoesThroughMeasurer() {
+        let measurer = TextKitMeasurer()
+        let stack = BlockStackView(pool: BlockViewPool(),
+                                   cache: AttributedCache(),
+                                   renderer: AttributedRenderer(),
+                                   measurer: measurer)
+        stack.applyPatch(BlockPatch(newlySealed: [sealed(0, "已经写完的一段")],
+                                    open: open(1, "还在写")))
+
+        _ = stack.heightThatFits(width: 300)
+        #expect(measurer.measureCountForTesting == 1,
+                "已闭合块应该走 TextKitMeasurer，而不是继续依赖活视图测高")
+
+        // 后续多帧只有尾块在变，已闭合块不应再次进测量器
+        for i in 0..<20 {
+            stack.applyPatch(BlockPatch(newlySealed: [], open: open(1, "变化中\(i)")))
+            _ = stack.heightThatFits(width: 300)
+        }
+        #expect(measurer.measureCountForTesting == 1,
+                "已闭合块只应测量一次；未闭合块不走测量器，由视图直接测")
+    }
+
     @Test("recycleAll 清空所有子视图")
     func recycleAllClears() {
         let stack = makeStack()
@@ -157,7 +181,8 @@ struct BlockStackViewTests {
                        errorText: nil,
                        pool: BlockViewPool(),
                        cache: AttributedCache(),
-                       renderer: AttributedRenderer())
+                       renderer: AttributedRenderer(),
+                       measurer: TextKitMeasurer())
         #expect(cell.blockCountForTesting == 1)
         let heightBefore = cell.heightThatFits(width: 375)
 
@@ -180,7 +205,8 @@ struct BlockStackViewTests {
                        errorText: nil,
                        pool: BlockViewPool(),
                        cache: AttributedCache(),
-                       renderer: AttributedRenderer())
+                       renderer: AttributedRenderer(),
+                       measurer: TextKitMeasurer())
 
         cell.simulateReasoningToggleForTesting()
         #expect(cell.reasoningExpandedForTesting == true, "前置条件：确实展开了")

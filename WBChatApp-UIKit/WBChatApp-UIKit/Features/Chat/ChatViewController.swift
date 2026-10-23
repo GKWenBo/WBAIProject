@@ -8,6 +8,7 @@ final class ChatViewController: UIViewController {
     private let renderer: AttributedRenderer
     private let cache: AttributedCache
     private let pool: BlockViewPool
+    private let measurer: TextKitMeasurer
     private let autoScroll = AutoScrollController()
 
     // MARK: - 视图
@@ -61,11 +62,13 @@ final class ChatViewController: UIViewController {
          renderer: AttributedRenderer,
          cache: AttributedCache,
          pool: BlockViewPool,
+         measurer: TextKitMeasurer,
          transcriber: SpeechTranscribing = SystemSpeechTranscriber()) {
         self.viewModel = viewModel
         self.renderer = renderer
         self.cache = cache
         self.pool = pool
+        self.measurer = measurer
         self.transcriber = transcriber
         super.init(nibName: nil, bundle: nil)
     }
@@ -191,6 +194,7 @@ final class ChatViewController: UIViewController {
                                pool: self.pool,
                                cache: self.cache,
                                renderer: self.renderer,
+                               measurer: self.measurer,
                                canRetry: message.id == self.viewModel.state.messages.last?.id && (self.viewModel.state.canSend || self.viewModel.state.hasUnsavedContent),
                                retryTitle: self.viewModel.state.hasUnsavedContent ? "重试保存" : "重新生成")
                 cell.onCodeCopy = { _ in Haptics.success() }
@@ -592,7 +596,7 @@ extension ChatViewController: UITableViewDelegate {
                            reasoning: viewModel.displayReasoning(for: message.id),
                            status: message.status,
                            errorText: message.errorText,
-                           pool: pool, cache: cache, renderer: renderer,
+                           pool: pool, cache: cache, renderer: renderer, measurer: measurer,
                            canRetry: message.id == viewModel.state.messages.last?.id && (viewModel.state.canSend || viewModel.state.hasUnsavedContent),
                            retryTitle: viewModel.state.hasUnsavedContent ? "重试保存" : "重新生成")
             return cell.heightThatFits(width: width)

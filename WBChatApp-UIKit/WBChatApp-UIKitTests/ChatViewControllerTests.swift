@@ -37,7 +37,8 @@ struct ChatViewControllerTests {
         let vc = ChatViewController(viewModel: viewModel,
                                     renderer: AttributedRenderer(),
                                     cache: AttributedCache(),
-                                    pool: BlockViewPool())
+                                    pool: BlockViewPool(),
+                                    measurer: TextKitMeasurer())
         return (vc, viewModel, throttle, repository, conversation.id, providerBox)
     }
 

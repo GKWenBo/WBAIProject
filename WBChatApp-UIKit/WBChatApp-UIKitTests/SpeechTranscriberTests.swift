@@ -121,6 +121,7 @@ struct ChatViewControllerVoiceInputTests {
                                     renderer: AttributedRenderer(),
                                     cache: AttributedCache(),
                                     pool: BlockViewPool(),
+                                    measurer: TextKitMeasurer(),
                                     transcriber: transcriber)
         _ = vc.view // 触发 viewDidLoad，接上 inputBar.onMicTap
         return vc

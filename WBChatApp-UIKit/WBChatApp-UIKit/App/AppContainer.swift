@@ -13,6 +13,8 @@ final class AppContainer {
     let renderer = AttributedRenderer()
     let cache = AttributedCache()
     let pool = BlockViewPool()
+    /// 无视图测高用的 TextKit 2 栈，共享一套避免每个块视图各建一份
+    let measurer = TextKitMeasurer()
 
     lazy var generations = ChatGenerationCoordinator(repository: repository,
         providerFactory: { [weak self] in self?.makeProvider() ?? MockProvider() },
@@ -48,7 +50,8 @@ final class AppContainer {
         ChatViewController(viewModel: makeChatViewModel(conversationID: conversationID),
                            renderer: renderer,
                            cache: cache,
-                           pool: pool)
+                           pool: pool,
+                           measurer: measurer)
     }
 
     /// 启动时取最近一个会话，没有就新建

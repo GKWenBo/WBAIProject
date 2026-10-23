@@ -38,7 +38,8 @@ struct BlockViewPoolBalanceTests {
                        errorText: nil,
                        pool: pool,
                        cache: cache,
-                       renderer: renderer)
+                       renderer: renderer,
+                       measurer: TextKitMeasurer())
 
         // 借出期间，视图被 BlockStackView 持有，不应该出现在池子的空闲队列里
         #expect(pool.idleCountForTesting(.text) == 0, "块视图还在被 cell 使用，不应该已经在空闲队列里")
@@ -69,7 +70,8 @@ struct BlockViewPoolBalanceTests {
                            errorText: nil,
                            pool: pool,
                            cache: cache,
-                           renderer: renderer)
+                           renderer: renderer,
+                           measurer: TextKitMeasurer())
         }
         cell.prepareForReuse() // 归还最后一轮借出的视图
 

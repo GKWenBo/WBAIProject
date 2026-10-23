@@ -15,6 +15,7 @@ final class BlockStackView: UIView {
     private let pool: BlockViewPool
     private let cache: AttributedCache
     private let renderer: AttributedRenderer
+    private let measurer: TextKitMeasurer
     private let spacing: CGFloat
 
     /// 与 `blockViews` 一一对应
@@ -37,10 +38,12 @@ final class BlockStackView: UIView {
     init(pool: BlockViewPool,
          cache: AttributedCache,
          renderer: AttributedRenderer,
+         measurer: TextKitMeasurer,
          spacing: CGFloat = MarkdownTheme.default.blockSpacing) {
         self.pool = pool
         self.cache = cache
         self.renderer = renderer
+        self.measurer = measurer
         self.spacing = spacing
         super.init(frame: .zero)
     }
@@ -244,6 +247,9 @@ final class BlockStackView: UIView {
 
     /// 已闭合块走 `AttributedCache.height`（按 block 内容 + 量化宽度缓存，
     /// 命中时完全不触碰 `UITextView`/TextKit）；未闭合块每帧都在变，直接测量。
+    ///
+    /// 未闭合块仍走视图测量：它的属性串这一帧刚在 `configure` 里设进视图，
+    /// 为了测高再渲染一份纯属浪费，而未闭合块必然有活视图在手。
     private func computeHeight(at index: Int, width: CGFloat) -> CGFloat {
         let block = blocks[index]
         let view = blockViews[index]
@@ -252,10 +258,37 @@ final class BlockStackView: UIView {
         }
         return cache.height(for: block, width: width, render: { [renderer] in
             renderer.render($0)
-        }, measure: { _ in
-            // 属性串已经在 `configure` 里设进 view 了，这里直接测同一个视图，
-            // 不用 measure 闭包收到的属性串重新配置一份。
-            view.heightThatFits(width: width)
+        }, measure: { [self] attributed in
+            sealedHeight(attributed, kind: block.kind, view: view, width: width)
         })
+    }
+
+    /// 已闭合块的高度。能交给测量器的类型就完全不碰视图，其余回退到视图测量。
+    private func sealedHeight(_ attributed: NSAttributedString,
+                              kind: MarkdownBlockKind,
+                              view: any BlockView,
+                              width: CGFloat) -> CGFloat {
+        guard TextKitMeasurer.canMeasure(kind) else {
+            return view.heightThatFits(width: width)
+        }
+        // 代码块不换行，宽度传 nil；其余按块类型扣掉装饰占的宽度。
+        let available: CGFloat?
+        if case .codeFence = kind {
+            available = nil
+        } else {
+            available = BlockMetrics.textContentWidth(for: kind, in: width)
+        }
+        let measured = measurer.height(of: attributed, width: available)
+            + BlockMetrics.chromeHeight(for: kind)
+
+        #if DEBUG
+        // 影子校验：Debug 下两条路都算一遍，抓真实使用中的漂移，而不只是测试语料
+        // 里的。这里是 AttributedCache 的 measure 闭包，每个「内容 + 量化宽度」
+        // 只会进来一次，所以不会打破「已闭合块只测量一次」那条承诺。
+        let fromView = view.heightThatFits(width: width)
+        assert(abs(fromView - measured) < 0.5,
+               "测量器与视图测高不一致：视图 \(fromView)，测量器 \(measured)，块类型 \(kind)")
+        #endif
+        return measured
     }
 }
