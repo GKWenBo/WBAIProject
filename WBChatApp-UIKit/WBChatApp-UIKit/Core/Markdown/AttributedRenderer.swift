@@ -47,9 +47,7 @@ final class AttributedRenderer {
     func render(_ block: MarkdownBlock) -> NSAttributedString {
         // 代码块不经过 swift-markdown：既省一次解析，也便于未闭合时照样出图
         if case .codeFence(let language) = block.kind {
-            return highlighter.highlight(code: codeText(of: block),
-                                         language: language,
-                                         theme: theme)
+            return highlightCode(codeText(of: block), language: language)
         }
 
         let document = Document(parsing: block.rawText)
@@ -60,6 +58,60 @@ final class AttributedRenderer {
         }
         applyParagraphStyle(to: result, kind: block.kind)
         return result
+    }
+
+    // MARK: - 代码块增量高亮
+
+    /// 未闭合代码块的高亮记忆。只存一条——同一时刻只有一个未闭合块。
+    private struct CodeMemo {
+        let language: String?
+        /// 已高亮、且结尾落在安全切点上的前缀
+        let prefix: String
+        let attributed: NSAttributedString
+    }
+    private var codeMemo: CodeMemo?
+
+    /// 高亮一段代码，尽量复用上一帧已经扫描过的前缀。
+    ///
+    /// 流式期间未闭合代码块每帧都要重新高亮一次，而每次全量扫描都要付出
+    /// `Array(code)` 的字位簇拆分、UTF-16 偏移表分配和逐字符分词。这里把结尾落在
+    /// 安全切点上的前缀连同它的属性串记下来，下一帧若新代码正好以它开头，就只扫描
+    /// 新增的那一段。
+    ///
+    /// **这不破坏 `AttributedCache` 要求的纯函数契约**：记忆完全按内容寻址，
+    /// 同一段代码无论之前喂过什么，产出的属性串都与一次性全量扫描完全相同。
+    /// `CodeHighlighterTests` 里有等价性测试盯着这一点。
+    ///
+    /// 线程约定与 `AttributedCache` 一致：只在主线程调用，内部不加锁。
+    private func highlightCode(_ code: String, language: String?) -> NSAttributedString {
+        if let memo = codeMemo, memo.language == language,
+           !memo.prefix.isEmpty, code.hasPrefix(memo.prefix) {
+            let remainder = String(code.dropFirst(memo.prefix.count))
+            let tail = highlighter.scan(code: remainder, language: language, theme: theme)
+            let result = NSMutableAttributedString(attributedString: memo.attributed)
+            result.append(tail.attributed)
+            // 把记忆推进到这一帧新的安全切点上
+            if tail.cleanCutCharacterCount > 0 {
+                let advanced = memo.prefix + remainder.prefix(tail.cleanCutCharacterCount)
+                codeMemo = CodeMemo(language: language, prefix: advanced,
+                                    attributed: result.attributedSubstring(
+                                        from: NSRange(location: 0,
+                                                      length: (advanced as NSString).length)))
+            }
+            return result
+        }
+
+        let full = highlighter.scan(code: code, language: language, theme: theme)
+        if full.cleanCutCharacterCount > 0 {
+            let prefix = String(code.prefix(full.cleanCutCharacterCount))
+            codeMemo = CodeMemo(language: language, prefix: prefix,
+                                attributed: full.attributed.attributedSubstring(
+                                    from: NSRange(location: 0,
+                                                  length: (prefix as NSString).length)))
+        } else {
+            codeMemo = nil
+        }
+        return full.attributed
     }
 
     /// 剥掉围栏行，拿到纯代码。未闭合的块没有结尾围栏，也要能正确处理。

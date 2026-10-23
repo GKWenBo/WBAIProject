@@ -113,4 +113,159 @@ struct CodeHighlighterTests {
         let attributed = highlighter.highlight(code: code, language: "swift", theme: theme)
         #expect(attributed.string == code)
     }
+
+    // MARK: - 增量扫描的安全切点
+
+    private func cleanCut(_ code: String, language: String?) -> Int {
+        highlighter.scan(code: code, language: language, theme: theme).cleanCutCharacterCount
+    }
+
+    @Test("highlight 与 scan 产出同一个属性串")
+    func highlightMatchesScan() {
+        let code = "func greet() {\n    print(\"hi\")\n}"
+        let viaHighlight = highlighter.highlight(code: code, language: "swift", theme: theme)
+        let viaScan = highlighter.scan(code: code, language: "swift", theme: theme).attributed
+        #expect(viaHighlight.isEqual(to: viaScan))
+    }
+
+    @Test("安全切点落在行首")
+    func cleanCutIsAtLineStart() {
+        let code = "let a = 1\nlet b = 2\nlet c = 3"
+        let cut = cleanCut(code, language: "swift")
+        #expect(cut > 0)
+        let prefix = String(code.prefix(cut))
+        #expect(prefix.hasSuffix("\n"))
+    }
+
+    @Test("未闭合的块注释内部不产生安全切点")
+    func noCleanCutInsideUnterminatedBlockComment() {
+        let code = "let a = 1\n/* 注释开始\n还在注释里\n继续"
+        let cut = cleanCut(code, language: "swift")
+        // 只能切在块注释开始之前
+        #expect(cut <= "let a = 1\n".count)
+    }
+
+    @Test("跨行块注释内部不产生安全切点")
+    func noCleanCutInsideBlockComment() {
+        let code = "/* 第一行\n第二行\n第三行 */ let a = 1"
+        // 第 2、3 行的行首都在注释内部，整段没有安全切点
+        #expect(cleanCut(code, language: "swift") == 0)
+    }
+
+    @Test("反斜杠续行的字符串内部不产生安全切点")
+    func noCleanCutInsideContinuedString() {
+        // 行尾反斜杠会让扫描器跨过换行继续把下一行当成字符串
+        let code = "let a = \"开头\\\n继续\\\n结尾\""
+        #expect(cleanCut(code, language: "swift") == 0)
+    }
+
+    // MARK: - 增量等价性（合并闸门）
+
+    /// 逐步喂入递增前缀，每一步都必须与「全新实例一次性渲染」的结果完全相同。
+    /// 这条测试守的是 `AttributedCache` 要求的纯函数契约：增量记忆不得让
+    /// 同一段代码因为喂入历史不同而产出不同的属性串。
+    private func expectIncrementalEqualsFull(_ code: String, language: String?,
+                                             step: Int, sourceLocation: SourceLocation = #_sourceLocation) {
+        let shared = AttributedRenderer()
+        var length = step
+        while length < code.count {
+            let partial = String(code.prefix(length))
+            let raw = "```\(language ?? "")\n\(partial)"
+            let block = MarkdownBlock(ordinal: 0, kind: .codeFence(language: language),
+                                      rawText: raw, isSealed: false)
+            let incremental = shared.render(block)
+            let fresh = AttributedRenderer().render(block)
+            #expect(incremental.isEqual(to: fresh),
+                    "前 \(length) 个字符处增量与全量结果不一致",
+                    sourceLocation: sourceLocation)
+            length += step
+        }
+    }
+
+    @Test("增量等价：普通 Swift 代码", arguments: [1, 3, 7])
+    func incrementalEqualsFullForSwift(step: Int) {
+        expectIncrementalEqualsFull("""
+        func greet(name: String) -> String {
+            let greeting = "你好，\\(name)"
+            // 返回问候语
+            return greeting
+        }
+        """, language: "swift", step: step)
+    }
+
+    @Test("增量等价：未闭合与闭合的块注释", arguments: [1, 5])
+    func incrementalEqualsFullForBlockComment(step: Int) {
+        expectIncrementalEqualsFull("""
+        let a = 1
+        /* 这是一段
+           跨行的注释 */
+        let b = 2
+        /* 又开一个没有关
+        """, language: "swift", step: step)
+    }
+
+    @Test("增量等价：反斜杠续行字符串", arguments: [1, 4])
+    func incrementalEqualsFullForContinuedString(step: Int) {
+        expectIncrementalEqualsFull("""
+        let s = "第一段\\
+        第二段\\
+        第三段"
+        let t = 2
+        """, language: "swift", step: step)
+    }
+
+    @Test("增量等价：含 emoji 与中文的代码", arguments: [1, 2])
+    func incrementalEqualsFullWithEmoji(step: Int) {
+        expectIncrementalEqualsFull("""
+        let 状态 = "运行中 🚀"
+        // 进度 👨‍💻 100%
+        print(状态)
+        """, language: "swift", step: step)
+    }
+
+    @Test("增量等价：Python 与 Bash 的 # 注释", arguments: [1, 6])
+    func incrementalEqualsFullForHashComment(step: Int) {
+        expectIncrementalEqualsFull("""
+        # 注释一行
+        def greet(name):
+            return f"hi {name}"  # 行尾注释
+        """, language: "python", step: step)
+
+        expectIncrementalEqualsFull("""
+        # 构建脚本
+        for f in *.swift; do
+            echo "$f"
+        done
+        """, language: "bash", step: step)
+    }
+
+    @Test("增量等价：CRLF 换行")
+    func incrementalEqualsFullForCRLF() {
+        expectIncrementalEqualsFull("let a = 1\r\nlet b = 2\r\n// 注释\r\nlet c = 3",
+                                    language: "swift", step: 1)
+    }
+
+    @Test("增量等价：Objective-C 的 @ 标识符")
+    func incrementalEqualsFullForObjC() {
+        expectIncrementalEqualsFull("""
+        @interface Foo : NSObject
+        @property (nonatomic) NSInteger count;
+        @end
+        """, language: "objc", step: 2)
+    }
+
+    @Test("切换语言后记忆作废，不会串用上一种语言的高亮")
+    func switchingLanguageInvalidatesMemo() {
+        let renderer = AttributedRenderer()
+        let swiftBlock = MarkdownBlock(ordinal: 0, kind: .codeFence(language: "swift"),
+                                       rawText: "```swift\nfunc a() {}\n", isSealed: false)
+        _ = renderer.render(swiftBlock)
+
+        // 同样的代码文本，换成 python：func 不再是关键字
+        let pythonBlock = MarkdownBlock(ordinal: 0, kind: .codeFence(language: "python"),
+                                        rawText: "```python\nfunc a() {}\n", isSealed: false)
+        let incremental = renderer.render(pythonBlock)
+        let fresh = AttributedRenderer().render(pythonBlock)
+        #expect(incremental.isEqual(to: fresh))
+    }
 }

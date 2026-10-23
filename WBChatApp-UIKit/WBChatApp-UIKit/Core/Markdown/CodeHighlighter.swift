@@ -40,7 +40,27 @@ struct CodeHighlighter: Sendable {
         "objective-c": "objc", "objectivec": "objc", "m": "objc",
     ]
 
+    /// 一次扫描的结果。
+    struct ScanResult {
+        let attributed: NSAttributedString
+        /// 最后一个**可安全切分**的位置（字符数）。
+        ///
+        /// 「可安全切分」= 该位置是某一行的开头，且扫描到那里时不处于任何跨行
+        /// 结构内部。满足这个条件时，「从这里截断、剩余部分从零状态重新扫描」
+        /// 与「整段一次扫完」的结果完全一致，上层才能据此做增量复用。
+        ///
+        /// 为什么不能随便挑一个换行符：块注释 `/* */` 本来就跨行；字符串遇到
+        /// 行尾反斜杠时 `index += 2` 会直接跨过换行继续吃下一行。这两种情况下
+        /// 的换行处切开再分别扫描，会把后半段当成普通代码，高亮就错了。
+        /// 0 表示整段都没有安全切点。
+        let cleanCutCharacterCount: Int
+    }
+
     func highlight(code: String, language: String?, theme: MarkdownTheme) -> NSAttributedString {
+        scan(code: code, language: language, theme: theme).attributed
+    }
+
+    func scan(code: String, language: String?, theme: MarkdownTheme) -> ScanResult {
         let normalized = language.map { $0.lowercased() }.map { Self.aliases[$0] ?? $0 }
         let keywords = normalized.flatMap { Self.keywordsByLanguage[$0] } ?? []
 
@@ -76,8 +96,14 @@ struct CodeHighlighter: Sendable {
             ], range: NSRange(location: location, length: length))
         }
 
+        // 循环顶部意味着「不在任何 token 内部」。此时若正好站在某一行的开头，
+        // 这里就是一个安全切点——跨行的块注释与反斜杠续行字符串都不会在这个
+        // 位置把控制流交回循环顶部，所以它们天然不会被误判成安全的。
+        var cleanCut = 0
+
         while index < characters.count {
             let character = characters[index]
+            if index > 0, characters[index - 1] == "\n" { cleanCut = index }
 
             // 行注释：// 与 #（bash/python）
             if character == "/", index + 1 < characters.count, characters[index + 1] == "/" {
@@ -142,7 +168,7 @@ struct CodeHighlighter: Sendable {
             // 其余符号原样保留
             index += 1
         }
-        return result
+        return ScanResult(attributed: result, cleanCutCharacterCount: cleanCut)
     }
 
     private static func color(for kind: CodeTokenKind, theme: MarkdownTheme) -> UIColor {
