@@ -26,7 +26,12 @@ final class AppContainer {
         configProvider: { [weak self] in (self?.settings.model ?? "", self?.settings.systemPrompt) },
         background: UIKitBackgroundExecution())
 
-    private init(repository: ChatRepository) { self.repository = repository }
+    private init(repository: ChatRepository) {
+        self.repository = repository
+        #if DEBUG
+        settings.applyDebugEnvironment(ProcessInfo.processInfo.environment)
+        #endif
+    }
 
     /// 后台线程打开数据库，并把上次被杀进程时残留的"生成中"消息标记为中断
     static func open() async throws -> AppContainer {

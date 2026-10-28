@@ -72,6 +72,44 @@ final class AppSettings {
         !key.isEmpty && key.unicodeScalars.allSatisfy { (0x21...0x7E).contains($0.value) }
     }
 
+    #if DEBUG
+    /// 调试用的启动环境变量，在 Xcode「Edit Scheme → Run → Arguments」里配置
+    enum DebugEnvironment {
+        /// 服务商：deepSeek / openAI / anthropic，可选
+        static let provider = "WBCHAT_PROVIDER"
+        /// 写入该服务商 Keychain 槽位的 Key
+        static let apiKey = "WBCHAT_API_KEY"
+    }
+
+    /// 用启动环境变量覆盖服务商与 Key，省去在模拟器里粘贴。
+    /// Key 仍经 Keychain 保存，不落 UserDefaults；返回是否写入了 Key。
+    @discardableResult
+    func applyDebugEnvironment(_ environment: [String: String]) -> Bool {
+        if let raw = environment[DebugEnvironment.provider], let kind = ProviderKind(rawValue: raw),
+           kind != provider {
+            provider = kind
+            // 换服务商时旧的模型与地址属于上一家，清掉回落到新服务商的默认值
+            defaults.removeObject(forKey: Key.model)
+            defaults.removeObject(forKey: Key.baseURL)
+        }
+
+        let key = (environment[DebugEnvironment.apiKey] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return false }
+        guard Self.isPlausibleAPIKey(key) else {
+            print("[AppSettings] \(DebugEnvironment.apiKey) 含空白或非 ASCII 字符，已忽略")
+            return false
+        }
+        guard key != apiKey else { return false }
+        do {
+            try setAPIKey(key)
+            return true
+        } catch {
+            print("[AppSettings] \(DebugEnvironment.apiKey) 写入 Keychain 失败")
+            return false
+        }
+    }
+    #endif
+
     /// 组装发起请求用的配置快照
     var currentConfig: ProviderConfig {
         ProviderConfig(kind: provider, baseURL: baseURL, apiKey: apiKey, model: model)
