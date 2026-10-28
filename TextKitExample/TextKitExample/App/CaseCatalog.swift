@@ -68,6 +68,11 @@ enum CaseCatalog {
                   title: "增量更新文本 · TextKit 2",
                   subtitle: "定时器模拟流式输出，只重建最后一段的排版",
                   badge: "TextKit 2",
-                  make: { StreamingTextKit2ViewController() })
+                  make: { StreamingTextKit2ViewController() }),
+        CaseEntry(number: 11,
+                  title: "Markdown 流式渲染",
+                  subtitle: "冻结已闭合的块，只重渲染尾块再替换",
+                  badge: "TextKit 2",
+                  make: { StreamingMarkdownViewController() })
     ]
 }

@@ -18,6 +18,25 @@ class StreamingTextViewController: CaseViewController {
         fatalError("子类必须重写 makeRenderer()")
     }
 
+    /// 子类重写：流式吐出的原文。
+    var sampleText: String { SampleText.streamingAnswer }
+
+    /// 子类重写：两个模式的标题，第一个是增量写法，第二个是全量对照组。
+    var modeTitles: [String] { ["增量追加", "全量替换"] }
+
+    /// 子类重写：处理一块新文本。`replacingAll` 为 true 时走全量对照组，`emitted` 是到目前为止的全部原文。
+    func applyUpdate(chunk: String, emitted: String, replacingAll: Bool) -> IncrementalUpdateReport {
+        if replacingAll {
+            return renderer.replaceAll(with: NSAttributedString(string: emitted, attributes: TextStyle.body))
+        }
+        return renderer.append(NSAttributedString(string: chunk, attributes: TextStyle.body))
+    }
+
+    /// 子类重写：重置流时清空内容（子类如果在渲染器之外还有状态，需要一并清掉）。
+    func resetContent() {
+        renderer.reset()
+    }
+
     private enum Mode: Int {
         case append, replace
     }
@@ -25,13 +44,13 @@ class StreamingTextViewController: CaseViewController {
     /// 每块的间隔。50ms 接近真实大模型流式输出的节奏。
     private static let tickInterval: TimeInterval = 0.05
 
-    private lazy var renderer = makeRenderer()
-    private var source = StreamingTextSource(text: SampleText.streamingAnswer)
+    private(set) lazy var renderer = makeRenderer()
+    private lazy var source = StreamingTextSource(text: sampleText)
     private var timer: Timer?
     private var mode = Mode.append
 
     private var textView: UITextView!
-    private let modeControl = UISegmentedControl(items: ["增量追加", "全量替换"])
+    private lazy var modeControl = UISegmentedControl(items: modeTitles)
     private let playButton = UIButton(configuration: .borderedProminent())
     private let resetButton = UIButton(configuration: .bordered())
     private let statsLabel = UILabel()
@@ -123,14 +142,9 @@ class StreamingTextViewController: CaseViewController {
             return
         }
 
-        let report: IncrementalUpdateReport
-        switch mode {
-        case .append:
-            report = renderer.append(NSAttributedString(string: chunk, attributes: TextStyle.body))
-        case .replace:
-            let everything = NSAttributedString(string: String(source.emitted), attributes: TextStyle.body)
-            report = renderer.replaceAll(with: everything)
-        }
+        let report = applyUpdate(chunk: chunk,
+                                 emitted: String(source.emitted),
+                                 replacingAll: mode == .replace)
 
         chunkCount += 1
         totalRelaidCharacters += report.relaidCharacters
@@ -162,7 +176,7 @@ class StreamingTextViewController: CaseViewController {
 
     private func resetStream() {
         source.reset()
-        renderer.reset()
+        resetContent()
         chunkCount = 0
         totalRelaidCharacters = 0
         statsLabel.text = "点「开始」，定时器每 \(Int(Self.tickInterval * 1000))ms 吐出一小块文本\n \n "
