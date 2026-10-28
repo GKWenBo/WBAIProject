@@ -1,8 +1,10 @@
 import Foundation
 
+/// 设置页：编辑的是 AppSettings 的草稿副本，调用 save() 才落盘。
 @MainActor
 final class SettingsViewModel {
 
+    /// 任一字段变化时通知页面刷新
     var onChange: (() -> Void)?
 
     private let settings: AppSettings

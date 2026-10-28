@@ -1,5 +1,6 @@
 import UIKit
 
+/// 高亮的 token 分类
 enum CodeTokenKind: String {
     case keyword, string, comment, number, plain
 }
@@ -15,6 +16,7 @@ extension NSAttributedString.Key {
 /// 从而天然避免「字符串里的 func 被标成关键字」这类误判。
 struct CodeHighlighter: Sendable {
 
+    /// 各语言关键字表；未知语言不标关键字，只处理注释/字符串/数字
     private static let keywordsByLanguage: [String: Set<String>] = [
         "swift": ["func", "let", "var", "if", "else", "guard", "return", "struct", "class",
                   "enum", "protocol", "extension", "import", "for", "in", "while", "switch",
@@ -56,10 +58,12 @@ struct CodeHighlighter: Sendable {
         let cleanCutCharacterCount: Int
     }
 
+    /// 只要属性串的便捷版本
     func highlight(code: String, language: String?, theme: MarkdownTheme) -> NSAttributedString {
         scan(code: code, language: language, theme: theme).attributed
     }
 
+    /// 从零状态线性扫描一遍，产出高亮属性串与最后一个安全切点
     func scan(code: String, language: String?, theme: MarkdownTheme) -> ScanResult {
         let normalized = language.map { $0.lowercased() }.map { Self.aliases[$0] ?? $0 }
         let keywords = normalized.flatMap { Self.keywordsByLanguage[$0] } ?? []

@@ -1,5 +1,6 @@
 import Foundation
 
+/// Anthropic Messages API 适配：x-api-key 鉴权、system 走顶层字段。
 struct AnthropicAdapter: ProviderAdapter {
 
     func buildRequest(_ request: ChatRequest, config: ProviderConfig) throws -> URLRequest {
@@ -37,8 +38,11 @@ struct AnthropicAdapter: ProviderAdapter {
 /// 事件，必须存下来才能在每次 `message_delta` 时拼出完整的 `TokenUsage`。
 struct AnthropicChunkMapper: SSEChunkMapper {
 
+    /// 来自 message_start
     private var inputTokens: Int = 0
+    /// 来自 message_delta，累计值
     private var outputTokens: Int = 0
+    /// 来自 message_delta，在 message_stop 时随 done 一起抛出
     private var stopReason: String?
 
     mutating func map(_ event: SSEEvent) throws -> [StreamChunk] {

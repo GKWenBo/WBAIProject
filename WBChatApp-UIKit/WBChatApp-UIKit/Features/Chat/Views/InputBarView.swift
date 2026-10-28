@@ -3,12 +3,17 @@ import UIKit
 /// 底部输入栏：多行自增高文本框 + 麦克风 + 发送/停止。
 final class InputBarView: UIView {
 
+    /// 发送；返回 true 表示已被接受，此时清空输入框
     var onSend: ((String) async -> Bool)?
+    /// 文本变化，用于同步草稿
     var onTextChanged: ((String) -> Void)?
+    /// 生成中点按钮 = 停止
     var onStop: (() -> Void)?
     var onMicTap: (() -> Void)?
+    /// 输入框高度变化，聊天页据此重新贴底
     var onHeightChange: (() -> Void)?
 
+    /// 文本框高度范围，超过上限后改为内部滚动
     private static let minHeight: CGFloat = 36
     private static let maxHeight: CGFloat = 120
 
@@ -56,8 +61,11 @@ final class InputBarView: UIView {
     }()
 
     private var textViewHeight: NSLayoutConstraint!
+    /// 生成中：按钮显示为停止
     private var isStreaming = false
+    /// onSend 尚未返回，防止重复点击
     private var isSending = false
+    /// 外部是否允许发送（如落库失败时禁止）
     private var canSend = true
 
     var text: String { textView.text ?? "" }
@@ -129,6 +137,7 @@ final class InputBarView: UIView {
         onMicTap?()
     }
 
+    /// 发送/停止按钮：生成中则停止，否则发送；发送成功且期间内容未改才清空
     @objc private func handleAction() {
         if isStreaming {
             onStop?()
@@ -159,6 +168,7 @@ final class InputBarView: UIView {
 
 extension InputBarView: UITextViewDelegate {
 
+    /// 同步草稿、占位符，并按内容自增高
     func textViewDidChange(_ textView: UITextView) {
         onTextChanged?(text)
         placeholderLabel.isHidden = !textView.text.isEmpty

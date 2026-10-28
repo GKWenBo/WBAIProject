@@ -7,18 +7,22 @@ protocol BlockView: UIView {
     /// 直接读取它做归类，不再需要另外维护一份 `switch view { case is ... }`。
     static var viewKind: BlockViewKind { get }
 
+    /// 绑定块内容；attributed 由上层渲染（并缓存）好后传入
     func configure(block: MarkdownBlock,
                    attributed: NSAttributedString,
                    renderer: AttributedRenderer)
     func heightThatFits(width: CGFloat) -> CGFloat
+    /// 回收到复用池前清理状态
     func prepareForReuse()
 }
 
+/// 块视图的复用分类：文本类块共用一种视图
 enum BlockViewKind: Hashable {
     case text
     case code
     case divider
 
+    /// Markdown 块类型 → 视图分类
     static func kind(for blockKind: MarkdownBlockKind) -> BlockViewKind {
         switch blockKind {
         case .codeFence:     return .code

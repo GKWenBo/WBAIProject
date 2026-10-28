@@ -1,7 +1,10 @@
 import UIKit
 
+/// 抽屉内容页：顶部"新对话 / 设置"，下方会话列表（左滑删除、重命名）。
+/// 页面跳转通过回调交给外层（AppContainer）处理。
 final class ConversationListViewController: UIViewController {
 
+    /// 选中或新建会话后触发，参数为会话 id
     var onSelect: ((String) -> Void)?
     var onOpenSettings: (() -> Void)?
     /// 某个会话被删除后触发（DB 已经删完）。外层用来判断被删的是不是聊天页正显示的那个会话，
@@ -10,6 +13,7 @@ final class ConversationListViewController: UIViewController {
 
     private let viewModel: ConversationListViewModel
     private let tableView = UITableView(frame: .zero, style: .plain)
+    /// 单 section，item 为会话 id
     private var dataSource: UITableViewDiffableDataSource<Int, String>!
 
     init(viewModel: ConversationListViewModel) {
@@ -87,6 +91,7 @@ final class ConversationListViewController: UIViewController {
         }
     }
 
+    /// 用 ViewModel 当前的 items 刷新列表
     private func applySnapshot() {
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
@@ -124,6 +129,7 @@ extension ConversationListViewController: UITableViewDelegate {
         onSelect?(id)
     }
 
+    /// 左滑：删除（异步，失败弹窗）/ 重命名
     func tableView(_ tableView: UITableView,
                    trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath)
     -> UISwipeActionsConfiguration? {

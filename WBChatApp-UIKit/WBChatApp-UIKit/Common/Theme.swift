@@ -13,6 +13,7 @@ enum Theme {
             : UIColor(white: 0, alpha: 0.03)
     }
 
+    /// 用户气泡：比助手气泡更深一档，便于区分发言方
     static let bubbleUser = UIColor { trait in
         trait.userInterfaceStyle == .dark
             ? UIColor(white: 1, alpha: 0.12)
@@ -23,6 +24,7 @@ enum Theme {
     static let textSecondary = UIColor.secondaryLabel
     static let accent = UIColor.systemBlue
 
+    /// 代码块与行内代码底色
     static let codeBackground = UIColor { trait in
         trait.userInterfaceStyle == .dark
             ? UIColor(white: 1, alpha: 0.08)

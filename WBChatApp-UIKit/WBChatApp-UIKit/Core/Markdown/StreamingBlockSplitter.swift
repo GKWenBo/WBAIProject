@@ -22,6 +22,7 @@ struct StreamingBlockSplitter {
     /// 还没等到换行符的尾部文本
     private var partial: String = ""
 
+    /// 下一个块的序号（也是当前未闭合块的序号）
     private var nextOrdinal: Int = 0
 
     init() {}
@@ -70,11 +71,13 @@ struct StreamingBlockSplitter {
 
     // MARK: - 行切分
 
+    /// 一个行终止符的位置：本行内容结束处与下一行开始处
     private struct LineTerminator {
         let lineEnd: String.Index
         let nextStart: String.Index
     }
 
+    /// 在 partial 中找第一个行终止符，找不到（或末尾 \r 无法判定）返回 nil
     private func nextLineTerminator() -> LineTerminator? {
         // 用 unicodeScalars 而非 Character 视图查找：Swift 的字位簇规则（GB3）会把
         // 相邻的 \r\n 合并成同一个 Character，无论它们是一次性写入的同一个字符串，
@@ -195,6 +198,7 @@ struct StreamingBlockSplitter {
         return sealed
     }
 
+    /// 把当前块闭合并追加到 sealedBlocks
     private mutating func seal() -> MarkdownBlock {
         guard let block = current else {
             preconditionFailure("seal 只能在存在未闭合块时调用")
@@ -229,6 +233,7 @@ struct StreamingBlockSplitter {
 
     // MARK: - 行特征判定
 
+    /// 按块起始行的特征判断块类型，判定顺序即优先级
     static func kind(ofOpeningLine line: String) -> MarkdownBlockKind {
         let text = line.trimmingCharacters(in: .whitespaces)
 
@@ -258,6 +263,7 @@ struct StreamingBlockSplitter {
         kind(ofOpeningLine: line) != .paragraph
     }
 
+    /// 解析围栏行：``` 或 ~~~ 至少三个，后跟可选语言标识
     private static func fenceInfo(_ text: String) -> (marker: Character, count: Int, language: String?)? {
         guard let first = text.first, first == "`" || first == "~" else { return nil }
         let count = text.prefix(while: { $0 == first }).count

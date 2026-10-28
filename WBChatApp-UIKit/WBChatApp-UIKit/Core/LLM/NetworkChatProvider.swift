@@ -7,7 +7,9 @@ final class NetworkChatProvider: ChatProvider {
     private let adapter: ProviderAdapter
     private let config: ProviderConfig
     private let session: URLSession
+    /// 各类超时阈值
     private let timing: StreamTimingConfiguration
+    /// 可注入的时钟，测试里用来快进时间
     private let clock: any StreamClock
 
     init(adapter: ProviderAdapter,
@@ -33,6 +35,10 @@ final class NetworkChatProvider: ChatProvider {
         self.init(adapter: adapter, config: config, session: session, timing: timing, clock: clock)
     }
 
+    /// 两个子任务竞速，先结束的一方决定结果：
+    /// - reader：读 SSE、映射成统一事件、转发给上层；
+    /// - monitor：定时检查"语义无进展超时"与"拿到停止原因后等待尾部 usage 超时"。
+    /// 由 `SemanticStreamProgress` 保证只有一方能宣告终止。
     func stream(_ request: ChatRequest) -> AsyncThrowingStream<StreamChunk, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
@@ -40,6 +46,7 @@ final class NetworkChatProvider: ChatProvider {
                     let urlRequest = try adapter.buildRequest(request, config: config)
                     let progress = SemanticStreamProgress(clock: self.clock)
                     try await withThrowingTaskGroup(of: Void.self) { group in
+                        // reader
                         group.addTask {
                             var mapper = self.adapter.makeMapper()
                             let connection = SSEStream.connection(for: urlRequest,
@@ -82,6 +89,7 @@ final class NetworkChatProvider: ChatProvider {
                                 throw error
                             }
 
+                            // 连接自然结束：有停止原因算成功，否则算中断
                             switch await progress.endOfTransport() {
                             case .alreadyTerminated:
                                 return
@@ -92,6 +100,7 @@ final class NetworkChatProvider: ChatProvider {
                             }
                         }
 
+                        // monitor
                         group.addTask {
                             while !Task.isCancelled {
                                 do {
@@ -113,6 +122,7 @@ final class NetworkChatProvider: ChatProvider {
                             }
                         }
 
+                        // 任一子任务结束即取消另一个
                         do {
                             _ = try await group.next()
                             group.cancelAll()
@@ -132,33 +142,43 @@ final class NetworkChatProvider: ChatProvider {
     }
 }
 
+/// 一次流式请求的终止状态机，reader 与 monitor 共享。
+/// "语义进展"指收到正文/思考增量，心跳和空帧不算，用于识别"连接还活着但模型不吐字"。
 actor SemanticStreamProgress {
+    /// reader 收到协议结束标记后抢到的终止权
     struct TerminalClaim {
         let reason: String?
     }
 
+    /// 连接自然结束时的判定
     enum EndOfTransport {
         case alreadyTerminated
         case finishReason(String)
         case interrupted
     }
 
+    /// monitor 每次轮询的判定
     enum MonitorResult {
         case keepWaiting
         case finished
+        /// 已有停止原因，尾部 usage 等不到了，直接成功收尾
         case finishTail(String)
         case timedOut
     }
 
     private let clock: any StreamClock
+    /// 最近一次语义进展的时间
     private var lastProgressAt: ContinuousClock.Instant
 
     init(clock: any StreamClock) {
         self.clock = clock
         lastProgressAt = clock.now
     }
+    /// 已收到但尚未提交的停止原因（只记第一个），等待尾部 usage / 结束标记
     private var pendingFinishReason: (reason: String, receivedAt: ContinuousClock.Instant)?
+    /// 是否已有一方宣告终止
     private var terminated = false
+    /// 已以成功状态终止；此后的清理错误不应改写结果
     private(set) var hasCompletedSuccessfully = false
     var isTerminated: Bool { terminated }
 
@@ -166,6 +186,7 @@ actor SemanticStreamProgress {
         lastProgressAt = clock.now
     }
 
+    /// 收到停止原因也算一次进展，并开始计算尾部等待时间
     func receivedFinishReason(_ reason: String) {
         let now = clock.now
         lastProgressAt = now
@@ -190,6 +211,7 @@ actor SemanticStreamProgress {
         return .interrupted
     }
 
+    /// 先判尾部等待超时（成功），再判语义无进展超时（失败）
     func monitor(at now: ContinuousClock.Instant,
                  timing: StreamTimingConfiguration) -> MonitorResult {
         if terminated { return .finished }

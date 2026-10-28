@@ -2,31 +2,52 @@ import Foundation
 import OSLog
 
 /// 页面只订阅会话；生成任务、正文快照和保存由应用持有。
+///
+/// 职责：
+/// - 按会话管理生成任务，离开聊天页、切换会话都不会中断生成；
+/// - 定时把正文快照落库（CAS），进程被杀也能保留已生成内容；
+/// - 限制同时生成的会话数，处理进后台的时间预算；
+/// - 顺带保存每个会话的输入草稿和阅读位置。
 @MainActor
 final class ChatGenerationCoordinator {
+    /// 推给页面的事件：state 状态变化 / content 正文增量 / replacement 重新生成时清空旧回复 / error 需提示的错误
     enum Event { case state, content, replacement, error(ChatError) }
+    /// 页面读取的会话快照
     struct Snapshot {
         var messages: [MessageRecord]
         var isStreaming: Bool
+        /// 已点发送但事务尚未提交
         var isPreparing: Bool
+        /// 快照落库失败，需要用户手动重试保存
         var hasUnsavedContent: Bool
         var error: ChatError?
     }
+    /// 聊天页的滚动位置，切回会话时恢复
     struct ReadingPosition {
         var offset: Double = 0
+        /// 是否贴底（贴底时新内容自动跟随）
         var pinned = true
     }
+    /// 一次生成的运行时状态，按会话 id 存放
     private final class Session {
+        /// 会话全部消息，最后一条是正在生成的助手回复
         var messages: [MessageRecord]
         let generationID: String
         let startedAt = ContinuousClock.now
+        /// 消费流式响应的任务
         var task: Task<Void, Never>?
+        /// 定时快照落库的任务
         var checkpointTask: Task<Void, Never>?
         var running = true
+        /// 有未落库的改动
         var dirty = false
+        /// 已收到首个增量并清空了旧回复（重新生成时旧内容保留到新内容到达）
         var replaced = false
+        /// 收到过协议层的 done，用于区分正常结束和意外断流
         var sawDone = false
+        /// 落库失败，内存里的内容尚未保存
         var unsaved = false
+        /// 正在进行的落库次数；归零时唤醒 saveWaiters
         var pendingSaves = 0
         var saveWaiters: [CheckedContinuation<Void, Never>] = []
         var finishReason: String?
@@ -35,6 +56,7 @@ final class ChatGenerationCoordinator {
             self.messages = messages
             self.generationID = generationID
         }
+        /// 正在生成的助手消息
         var reply: MessageRecord {
             get { messages[messages.count - 1] }
             set { messages[messages.count - 1] = newValue }
@@ -43,24 +65,38 @@ final class ChatGenerationCoordinator {
     }
 
     private let repository: ChatRepository
+    /// 串行写库队列
     private let store: GenerationStore
+    /// 每次生成时取最新的 provider，设置页改了 Key 立即生效
     private let providerFactory: () -> ChatProvider
     private let configProvider: () -> (model: String, systemPrompt: String?)
     private let clock: GenerationClock
     private let background: BackgroundExecution?
+    /// 同时生成的会话数上限
     private let limit: Int
+    /// 快照落库间隔（秒）
     private let checkpointInterval: TimeInterval
+    /// 进后台后最多继续生成的时长（秒）
     private let backgroundLimit: TimeInterval
+    /// 会话 id → 生成状态（结束后仍保留，供页面读取终态）
     private var sessions: [String: Session] = [:]
+    /// 会话 id → 正在准备的 generationID（开始事务尚未提交）
     private var preparing: [String: String] = [:]
+    /// 正在删除的会话，期间拒绝发起生成
     private var deleting: Set<String> = []
+    /// 准备阶段遇到后台到期的 generationID，事务提交后立即以中断收尾
     private var expiredPreparing: Set<String> = []
+    /// 每次回前台 +1，让旧的后台计时器失效
     private var backgroundEpoch = 0
+    /// 会话 id → 订阅者
     private var observers: [String: [UUID: (Event) -> Void]] = [:]
+    /// 任意会话生成状态变化的订阅者（会话列表用来显示"生成中"）
     private var activityObservers: [UUID: () -> Void] = [:]
     private var backgroundTimer: Task<Void, Never>?
     private(set) var isInBackground = false
+    /// 会话 id → 未发送的输入草稿
     private var drafts: [String: String] = [:]
+    /// 会话 id → 阅读位置
     private var positions: [String: ReadingPosition] = [:]
     private let logger = Logger(subsystem: "WBChatApp", category: "Generation")
 
@@ -83,6 +119,9 @@ final class ChatGenerationCoordinator {
 
     deinit { backgroundTimer?.cancel() }
 
+    // MARK: - 订阅与页面状态
+
+    /// 有生成状态时读内存，否则读库
     func snapshot(conversationID: String) throws -> Snapshot {
         let session = sessions[conversationID]
         return Snapshot(messages: try session?.messages ?? repository.messages(in: conversationID),
@@ -107,12 +146,16 @@ final class ChatGenerationCoordinator {
     func readingPosition(for id: String) -> ReadingPosition { positions[id] ?? ReadingPosition() }
     func setReadingPosition(_ value: ReadingPosition, for id: String) { positions[id] = value }
 
+    // MARK: - 发起生成
+
+    /// 发送新消息并开始生成，返回是否成功发起
     @discardableResult
     func send(conversationID: String, text: String) async -> Bool {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return false }
         return await begin(conversationID: conversationID, retryID: nil, text: text)
     }
+    /// 重新生成最后一条助手回复
     @discardableResult
     func regenerate(conversationID: String, messageID: String) async -> Bool {
         guard let last = try? snapshot(conversationID: conversationID).messages.last,
@@ -120,6 +163,8 @@ final class ChatGenerationCoordinator {
         return await begin(conversationID: conversationID, retryID: messageID, text: "")
     }
 
+    /// 发起流程：校验名额 → 占位 preparing → 等上一轮落库完成 → 开始事务 → 启动快照任务与流式任务。
+    /// retryID 非空表示重新生成该消息。每个 await 之后都要校验 preparing 是否仍是自己（可能已被删除/取消）。
     private func begin(conversationID: String, retryID: String?, text: String) async -> Bool {
         guard !deleting.contains(conversationID), !isGenerating(conversationID), sessions[conversationID]?.unsaved != true else { return false }
         guard sessions.values.filter(\.running).count + preparing.count < limit else {
@@ -154,6 +199,7 @@ final class ChatGenerationCoordinator {
             let session = Session(messages: records, generationID: generationID)
             sessions[conversationID] = session
             if retryID == nil, drafts[conversationID]?.trimmingCharacters(in: .whitespacesAndNewlines) == text { drafts[conversationID] = "" }
+            // 上下文：去掉正在生成的那条，跳过未完成的助手回复，最多取最近 20 条
             let history = records.dropLast().filter { $0.role != .assistant || $0.status == .completed }
                 .suffix(20).map { ChatMessage(role: $0.role, content: $0.content) }
             let request = ChatRequest(model: config.model, messages: history, system: config.systemPrompt,
@@ -213,10 +259,12 @@ final class ChatGenerationCoordinator {
         }
     }
 
+    /// 该 generationID 是否仍是会话当前且运行中的生成；过期任务的回调据此丢弃
     private func isCurrent(_ conversationID: String, _ generationID: String) -> Bool {
         sessions[conversationID]?.generationID == generationID && sessions[conversationID]?.running == true
     }
 
+    /// 把一个流式事件合并进内存中的回复，只标脏，不立即落库
     private func consume(_ chunk: StreamChunk, conversationID: String) {
         guard let session = sessions[conversationID] else { return }
         switch chunk {
@@ -246,11 +294,15 @@ final class ChatGenerationCoordinator {
         }
     }
 
+    // MARK: - 结束与落库
+
+    /// 用户主动停止生成
     func stop(conversationID: String) {
         guard sessions[conversationID]?.running == true else { return }
         finish(conversationID, status: .stopped, reason: "userStopped")
     }
 
+    /// 统一收尾：停任务、写终态与提示文案、落库、通知，空闲时释放后台时间
     private func finish(_ id: String, status: MessageStatus, reason: String, error: ChatError? = nil) {
         guard let session = sessions[id], session.running else { return }
         session.running = false // 先关闭事件入口，再取消网络；不等待取消回调。
@@ -278,6 +330,7 @@ final class ChatGenerationCoordinator {
         logger.info("generation ended: \(reason, privacy: .public), elapsed seconds: \(elapsed.seconds)")
     }
 
+    /// 有改动时递增快照序号并异步落库；最新快照写失败则中止生成并标记 unsaved
     private func persist(_ id: String) {
         guard let session = sessions[id], session.dirty else { return }
         session.dirty = false
@@ -313,6 +366,7 @@ final class ChatGenerationCoordinator {
         }
     }
 
+    /// 落库失败后由用户触发重试，成功后以"中断"状态保存
     func retrySave(conversationID: String) async -> Bool {
         guard let session = sessions[conversationID], session.unsaved else { return true }
         session.reply.snapshotSequence += 1
@@ -329,6 +383,7 @@ final class ChatGenerationCoordinator {
         } catch { notify(conversationID, .error(.storage)); return false }
     }
 
+    /// 删除会话：先取消生成再删库；删库失败时恢复生成占位并以中断收尾
     func deleteConversation(_ id: String) async throws {
         guard deleting.insert(id).inserted else { return }
         defer { deleting.remove(id) }
@@ -358,6 +413,9 @@ final class ChatGenerationCoordinator {
         }
     }
 
+    // MARK: - 前后台
+
+    /// 进后台：立即落库一次，申请后台时间并开始计时，到时未完成的生成以中断收尾
     func enterBackground() {
         guard !isInBackground else { return }
         isInBackground = true
@@ -365,6 +423,7 @@ final class ChatGenerationCoordinator {
         ensureBackgroundProtection()
         startBackgroundTimer()
     }
+    /// 回前台：作废后台计时器，刷新所有页面
     func enterForeground() {
         isInBackground = false
         backgroundEpoch += 1
@@ -372,6 +431,7 @@ final class ChatGenerationCoordinator {
         for id in Array(observers.keys) { notify(id, .state) }
         ensureBackgroundProtection()
     }
+    /// 有生成在跑就持有后台任务，申请失败视同到期
     private func ensureBackgroundProtection() {
         guard sessions.values.contains(where: \.running) || !preparing.isEmpty, let background else { return }
         if !background.begin(expiration: { [weak self] in self?.expireBackground() }) {
@@ -387,6 +447,7 @@ final class ChatGenerationCoordinator {
             self.expireBackground()
         }
     }
+    /// 后台时间到期：中断所有运行中的生成，准备中的在事务提交后再中断
     func expireBackground() {
         expiredPreparing.formUnion(preparing.values)
         backgroundTimer?.cancel(); backgroundTimer = nil

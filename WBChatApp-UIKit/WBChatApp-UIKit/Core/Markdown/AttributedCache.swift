@@ -11,6 +11,7 @@ import UIKit
 /// 调用方（视图层）本来就都在主线程，因此这里不加锁，避免不必要的开销。
 final class AttributedCache {
 
+    /// 一个已闭合块的渲染结果，以及它在各宽度下测得的高度
     private final class Entry {
         let attributedString: NSAttributedString
         /// 宽度 → 高度
@@ -20,6 +21,7 @@ final class AttributedCache {
         }
     }
 
+    /// 以 `MarkdownBlock.cacheKey` 为键，内存紧张时系统自动淘汰
     private let storage = NSCache<NSNumber, Entry>()
 
     init(countLimit: Int = 400) {

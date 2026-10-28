@@ -1,5 +1,6 @@
 import Foundation
 
+/// 块类型，决定用哪种块视图渲染
 enum MarkdownBlockKind: Equatable, Hashable, Sendable {
     case paragraph
     case heading(level: Int)
@@ -26,6 +27,7 @@ struct MarkdownBlock: Equatable, Hashable, Sendable {
     /// 在消息内单调递增，作为块的稳定身份
     let ordinal: Int
     let kind: MarkdownBlockKind
+    /// 该块对应的 Markdown 源文本
     let rawText: String
     let isSealed: Bool
 

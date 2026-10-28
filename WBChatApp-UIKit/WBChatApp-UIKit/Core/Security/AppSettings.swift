@@ -18,6 +18,7 @@ final class AppSettings {
         self.keychain = keychain
     }
 
+    /// 当前服务商，未设置时默认 DeepSeek
     var provider: ProviderKind {
         get { ProviderKind(rawValue: defaults.string(forKey: Key.provider) ?? "") ?? .deepSeek }
         set { defaults.set(newValue.rawValue, forKey: Key.provider) }
@@ -28,6 +29,7 @@ final class AppSettings {
         set { defaults.set(newValue, forKey: Key.model) }
     }
 
+    /// 自定义接口地址，未设置时取服务商默认地址
     var baseURL: URL {
         get {
             guard let raw = defaults.string(forKey: Key.baseURL), let url = URL(string: raw) else {
@@ -43,6 +45,7 @@ final class AppSettings {
         set { defaults.set(newValue, forKey: Key.systemPrompt) }
     }
 
+    /// 当前服务商的 Key
     var apiKey: String {
         get { apiKey(for: provider) }
     }
@@ -53,6 +56,7 @@ final class AppSettings {
         keychain.read(KeychainStore.key(for: provider)) ?? ""
     }
 
+    /// 保存当前服务商的 Key，传空串即删除
     func setAPIKey(_ key: String) throws {
         if key.isEmpty {
             try keychain.delete(KeychainStore.key(for: provider))
@@ -63,6 +67,7 @@ final class AppSettings {
 
     var hasAPIKey: Bool { !apiKey.isEmpty }
 
+    /// 组装发起请求用的配置快照
     var currentConfig: ProviderConfig {
         ProviderConfig(kind: provider, baseURL: baseURL, apiKey: apiKey, model: model)
     }

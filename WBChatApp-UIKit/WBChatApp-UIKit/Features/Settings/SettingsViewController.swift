@@ -1,7 +1,9 @@
 import UIKit
 
+/// 设置页：每行点开弹窗/选单修改一项，"完成"时统一保存。
 final class SettingsViewController: UITableViewController {
 
+    /// 行顺序即 rawValue
     private enum Row: Int, CaseIterable {
         case provider, model, baseURL, apiKey, systemPrompt, testConnection
     }
@@ -98,6 +100,7 @@ final class SettingsViewController: UITableViewController {
         present(sheet, animated: true)
     }
 
+    /// 通用单行文本输入弹窗
     private func presentTextInput(title: String, value: String,
                                   isSecure: Bool = false,
                                   onDone: @escaping (String) -> Void) {
@@ -166,6 +169,7 @@ final class SettingsViewController: UITableViewController {
         }
     }
 
+    /// 保存并关闭；地址非法时留在本页提示
     @objc private func handleDone() {
         guard viewModel.save() else {
             presentInvalidBaseURLAlert()

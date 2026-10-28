@@ -44,6 +44,7 @@ final class AttributedRenderer {
         return style
     }
 
+    /// 渲染入口：代码块走高亮器，其余块交给 swift-markdown 解析后逐节点转属性串
     func render(_ block: MarkdownBlock) -> NSAttributedString {
         // 代码块不经过 swift-markdown：既省一次解析，也便于未闭合时照样出图
         if case .codeFence(let language) = block.kind {
@@ -132,6 +133,7 @@ final class AttributedRenderer {
 
     // MARK: - 块级
 
+    /// 块级节点 → 属性串，引用与列表会递归处理子块
     private func renderBlockMarkup(_ markup: Markup) -> NSAttributedString {
         switch markup {
         case let heading as Heading:
@@ -180,6 +182,7 @@ final class AttributedRenderer {
         }
     }
 
+    /// marker 按项下标生成列表符号（"• " 或 "1. "）
     private func renderList(items: [ListItem], marker: (Int) -> String) -> NSAttributedString {
         let result = NSMutableAttributedString()
         for (index, item) in items.enumerated() {
@@ -229,6 +232,7 @@ final class AttributedRenderer {
         [.font: theme.bodyFont, .foregroundColor: theme.textColor]
     }
 
+    /// 行内节点 → 属性串。base 为外层继承下来的属性，嵌套样式（如粗体内的链接）在其上叠加
     private func renderInline(_ markup: Markup,
                               base: [NSAttributedString.Key: Any]) -> NSAttributedString {
         switch markup {
@@ -280,6 +284,7 @@ final class AttributedRenderer {
         return result
     }
 
+    /// 在现有字体上叠加粗体/斜体特征
     private func adding(_ trait: UIFontDescriptor.SymbolicTraits,
                         to attributes: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
         var result = attributes

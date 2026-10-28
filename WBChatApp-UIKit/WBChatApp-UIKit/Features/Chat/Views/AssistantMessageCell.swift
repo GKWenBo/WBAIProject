@@ -8,6 +8,7 @@ final class AssistantMessageCell: UITableViewCell {
     private static let horizontalInset: CGFloat = 16
     private static let verticalInset: CGFloat = 10
 
+    /// 正文块容器，首次 configure 时按注入的依赖创建
     private var stackView: BlockStackView?
 
     private let reasoningView: ReasoningSectionView = {
@@ -17,6 +18,7 @@ final class AssistantMessageCell: UITableViewCell {
         return view
     }()
 
+    /// 失败/中断/截断等提示文案
     private let errorLabel: UILabel = {
         let label = UILabel()
         label.font = .preferredFont(forTextStyle: .footnote)
@@ -132,6 +134,7 @@ final class AssistantMessageCell: UITableViewCell {
         setNeedsLayout()
     }
 
+    /// 纯计算行高：上下留白 + 思考区 + 正文 + 提示 + 操作栏，与 layoutSubviews 保持一致
     func heightThatFits(width: CGFloat) -> CGFloat {
         let contentWidth = width - Self.horizontalInset * 2
         var height = Self.verticalInset * 2

@@ -73,8 +73,11 @@ final class DrawerContainerViewController: UIViewController {
     /// 主内容当前的 x 偏移，拖动、动画、布局共用的唯一真源
     private var contentX: CGFloat = 0
 
+    /// 手指正在拖动
     private var isDragging = false
+    /// 松手后的归位动画进行中
     private var isSettling = false
+    /// 归位动画代数，用来让被打断的旧动画 completion 失效
     private var settleGeneration = 0
 
     /// 手势开始那一刻的 contentX，拖动增量要叠加在它上面。
@@ -388,6 +391,7 @@ final class DrawerContainerViewController: UIViewController {
         }
     }
 
+    /// 松手后决定吸附到开还是关
     private func settleAfterDrag(velocityX: CGFloat) {
         let shouldOpen: Bool
         if velocityX > Self.flickVelocityThreshold {

@@ -1,10 +1,16 @@
 import Foundation
 
+/// 流式请求的各类超时阈值
 struct StreamTimingConfiguration: Sendable {
+    /// 连续多久没收到任何字节判定为网络卡死
     var networkIdleTimeout: Duration
+    /// 连续多久没收到正文/思考增量判定为模型无响应（心跳不算）
     var semanticProgressTimeout: Duration
+    /// 单次请求的总时长上限
     var totalTimeout: Duration
+    /// 收到停止原因后，最多再等多久尾部 usage / 结束标记
     var usageTailTimeout: Duration
+    /// 超时检查的轮询间隔
     var pollingInterval: Duration
 
     static let `default` = StreamTimingConfiguration(
@@ -16,11 +22,13 @@ struct StreamTimingConfiguration: Sendable {
     )
 }
 
+/// 时钟抽象，测试里注入可手动推进的实现
 protocol StreamClock: Sendable {
     var now: ContinuousClock.Instant { get }
     func sleep(for duration: Duration) async throws
 }
 
+/// 生产环境使用的系统时钟
 struct SystemStreamClock: StreamClock {
     var now: ContinuousClock.Instant { .now }
     func sleep(for duration: Duration) async throws {
@@ -28,6 +36,7 @@ struct SystemStreamClock: StreamClock {
     }
 }
 
+/// 记录字节到达时间，供超时监控任务跨线程读取（NSLock 保护）
 private final class SSEStreamActivity: @unchecked Sendable {
     private let lock = NSLock()
     private let clock: any StreamClock
@@ -55,20 +64,24 @@ private final class SSEStreamActivity: @unchecked Sendable {
     }
 }
 
-/// 把一次 HTTP 请求变成 SSE 事件流。
-/// 负责状态码检查与字节喂给解析器，不理解任何业务语义。
+/// 一条 SSE 连接：事件流 + 背后的生产任务
 struct SSEConnection: Sendable {
     let events: AsyncThrowingStream<SSEEvent, Error>
+    /// 负责读字节与超时监控的任务，取消即断开连接
     let producer: Task<Void, Never>
 
+    /// 取消并等待生产任务真正退出，确保 HTTP 连接已释放
     func close() async {
         producer.cancel()
         await producer.value
     }
 }
 
+/// 把一次 HTTP 请求变成 SSE 事件流。
+/// 负责状态码检查与字节喂给解析器，不理解任何业务语义。
 enum SSEStream {
 
+    /// 建立连接：读字节任务与网络超时监控任务竞速，任一结束即取消另一个
     static func connection(for request: URLRequest,
                        session: URLSession,
                        timing: StreamTimingConfiguration = .default,

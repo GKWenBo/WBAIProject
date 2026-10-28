@@ -1,12 +1,15 @@
 import Foundation
 import GRDB
 
+/// 抽屉里的会话列表：订阅数据库与生成状态，提供新建、删除、重命名。
 @MainActor
 final class ConversationListViewModel {
 
+    /// 列表一行的展示数据
     struct Item: Equatable {
         let id: String
         let title: String
+        /// 更新时间，正在生成时显示"生成中…"
         let subtitle: String
     }
 
@@ -21,7 +24,9 @@ final class ConversationListViewModel {
 
     private let repository: ChatRepository
     private let settings: AppSettings
+    /// 用来查询会话是否在生成，以及走协调器删除（会先取消生成）
     private let generations: ChatGenerationCoordinator?
+    /// 生成状态订阅句柄，deinit 时注销
     private var activityObservation: UUID?
     /// 必须持有，否则 ARC 释放时观察会立即静默取消
     private var observation: AnyDatabaseCancellable?
@@ -53,6 +58,7 @@ final class ConversationListViewModel {
             })
     }
 
+    /// 新建会话并返回 id，失败返回空串
     @discardableResult
     func createConversation() -> String {
         let record = try? repository.createConversation(title: "新对话",
@@ -62,6 +68,7 @@ final class ConversationListViewModel {
         return record?.id ?? ""
     }
 
+    /// 删除会话；有协调器时由它先取消生成再删库
     func delete(id: String) async throws {
         if let generations { try await generations.deleteConversation(id) }
         else { try await GenerationStore(repository: repository).perform { try $0.deleteConversation(id: id) } }
@@ -85,6 +92,7 @@ final class ConversationListViewModel {
         }
     }
 
+    /// 记录 → 展示数据，叠加生成中状态
     private func item(from record: ConversationRecord) -> Item {
         let basic = Self.basicItem(from: record)
         return Item(id: basic.id, title: basic.title,

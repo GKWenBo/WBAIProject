@@ -34,7 +34,9 @@ final class MockProvider: ChatProvider {
     """
 
     private let script: String
+    /// 每次吐出的字符数
     private let chunkSize: Int
+    /// 两次吐字之间的间隔，模拟网络节奏
     private let delay: Duration
 
     init(script: String = MockProvider.defaultScript,

@@ -1,14 +1,22 @@
 import UIKit
 
+/// 聊天页：消息列表 + 输入栏 + 语音输入。
+///
+/// 两条刷新通道：
+/// - 结构变化（增删消息、状态切换）走 diffable snapshot；
+/// - 流式增量直接拿到可见 cell 打补丁，只在行高变化时 begin/endUpdates，不 reload。
+/// 行高由离屏测量 + `heightCache` 提供，不依赖 Auto Layout 自适应。
 final class ChatViewController: UIViewController {
 
     // MARK: - 依赖
 
     private let viewModel: ChatViewModel
+    // 以下渲染组件全局共享，由 AppContainer 注入
     private let renderer: AttributedRenderer
     private let cache: AttributedCache
     private let pool: BlockViewPool
     private let measurer: TextKitMeasurer
+    /// 贴底/脱离的滚动状态机
     private let autoScroll = AutoScrollController()
 
     // MARK: - 视图
@@ -37,12 +45,15 @@ final class ChatViewController: UIViewController {
     /// getter 非 private：测试靠 `await speechTask?.value` 等语音会话彻底收尾，
     /// 不用瞎猜 yield 次数。同时也是 Critical 2 的同步重入锁——见 `startVoiceInput()`。
     private(set) var speechTask: Task<Void, Never>?
+    /// 本次语音会话最新的识别文本
     private var transcribedText = ""
 
+    /// 单 section，item 为消息 id
     private var dataSource: UITableViewDiffableDataSource<Int, String>!
 
     /// 行高缓存。键是消息 id，值是当前宽度下的高度。
     private var heightCache: [String: CGFloat] = [:]
+    /// heightCache 对应的列表宽度，宽度变化时整体失效
     private var cachedWidth: CGFloat = 0
 
     /// 正在流式的那条消息，用来直接拿 cell 打补丁
@@ -91,6 +102,7 @@ final class ChatViewController: UIViewController {
         viewModel.loadHistory()
     }
 
+    /// 恢复草稿与阅读位置，恢复订阅
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         let position = viewModel.readingPosition
@@ -102,6 +114,7 @@ final class ChatViewController: UIViewController {
         else { tableView.setContentOffset(CGPoint(x: 0, y: position.offset), animated: false) }
     }
 
+    /// 保存草稿与阅读位置，退订（生成在协调器里继续）
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         viewModel.draft = inputBar.text
@@ -175,6 +188,7 @@ final class ChatViewController: UIViewController {
                                        for: .touchUpInside)
     }
 
+    /// 按角色配置用户/助手 cell，并接好 cell 上的交互回调
     private func setUpDataSource() {
         dataSource = UITableViewDiffableDataSource<Int, String>(tableView: tableView) {
             [weak self] tableView, indexPath, messageID in
@@ -228,6 +242,7 @@ final class ChatViewController: UIViewController {
 
     // MARK: - 绑定
 
+    /// ViewModel 输出 → 列表刷新 / cell 补丁 / 弹窗
     private func bindViewModel() {
         viewModel.onOutput = { [weak self] output in
             guard let self else { return }
@@ -268,6 +283,7 @@ final class ChatViewController: UIViewController {
 
     // MARK: - 结构性变化
 
+    /// 结构/状态变化：重建 snapshot，已有行原地 reconfigure，清空行高缓存
     private func applySnapshot(_ state: ChatViewModel.State) {
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
@@ -345,6 +361,7 @@ final class ChatViewController: UIViewController {
         stickToBottomIfNeeded()
     }
 
+    /// 思考内容增量：更新折叠区文本并按需重算行高
     private func applyReasoning(messageID: String, text: String) {
         guard let indexPath = indexPath(for: messageID),
               let cell = tableView.cellForRow(at: indexPath) as? AssistantMessageCell else { return }
@@ -437,6 +454,7 @@ final class ChatViewController: UIViewController {
         regenerationFloor = (messageID, current)
     }
 
+    /// 测量高度叠加重新生成的行高下限
     private func rowHeight(_ measured: CGFloat, for messageID: String) -> CGFloat {
         guard let floor = regenerationFloor, floor.messageID == messageID else { return measured }
         return max(measured, floor.height)
@@ -481,6 +499,7 @@ final class ChatViewController: UIViewController {
         autoScroll.endProgrammaticScroll()
     }
 
+    /// 点"回到底部"：恢复贴底并带动画滚到底
     @objc private func handleScrollToBottom() {
         autoScroll.didTapScrollToBottom()
         autoScroll.beginProgrammaticScroll()
@@ -513,6 +532,7 @@ final class ChatViewController: UIViewController {
         }
     }
 
+    /// 一次完整的语音会话：授权 → 弹浮层 → 消费识别事件 → 收尾
     private func runVoiceInputSession() async {
         guard await transcriber.requestAuthorization() else {
             presentPermissionAlert()
@@ -611,6 +631,7 @@ final class ChatViewController: UIViewController {
 
 extension ChatViewController: UITableViewDelegate {
 
+    /// 优先读缓存，未命中再离屏测量
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         guard let messageID = dataSource.itemIdentifier(for: indexPath) else { return 0 }
         if let cached = heightCache[messageID] { return cached }

@@ -24,6 +24,7 @@ final class AutoScrollController {
     /// 离底多近算「回到底部」
     var bottomThreshold: CGFloat
 
+    /// 模式变化时通知页面（显示/隐藏"回到底部"按钮）
     var onModeChange: ((Mode) -> Void)?
 
     var shouldStickToBottom: Bool { mode == .pinned }

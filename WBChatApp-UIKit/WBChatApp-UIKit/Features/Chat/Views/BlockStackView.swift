@@ -16,6 +16,7 @@ final class BlockStackView: UIView {
     private let cache: AttributedCache
     private let renderer: AttributedRenderer
     private let measurer: TextKitMeasurer
+    /// 块间距
     private let spacing: CGFloat
 
     /// 与 `blockViews` 一一对应
@@ -25,6 +26,7 @@ final class BlockStackView: UIView {
     /// 最后一个块是否处于未闭合状态
     private var hasOpenBlock = false
 
+    /// cachedHeights 对应的宽度
     private var cachedWidth: CGFloat = 0
     /// 与 `blockViews` 一一对应；`nil` 表示该槽位待重算。
     ///
@@ -125,6 +127,7 @@ final class BlockStackView: UIView {
         // 撤回分支已经各自把受影响槽位标记为待重算，已闭合块的槽位原样保留。
     }
 
+    /// 全部块视图还回复用池
     func recycleAll() {
         for view in blockViews { pool.recycle(view) }
         blockViews.removeAll()
@@ -135,6 +138,7 @@ final class BlockStackView: UIView {
 
     // MARK: - 布局与高度
 
+    /// 各块高度之和加块间距
     func heightThatFits(width: CGFloat) -> CGFloat {
         ensureHeights(width: width)
         guard !cachedHeights.isEmpty else { return 0 }
@@ -164,6 +168,7 @@ final class BlockStackView: UIView {
 
     // MARK: - 私有
 
+    /// 从池里借一个视图追加到末尾
     private func appendView(for block: MarkdownBlock) {
         let view = pool.dequeue(BlockViewKind.kind(for: block.kind))
         configure(view, with: block)
@@ -179,6 +184,7 @@ final class BlockStackView: UIView {
         invalidateIntrinsicContentSize()
     }
 
+    /// 原地更新某个槽位，块类型变了就换视图
     private func updateView(at index: Int, with block: MarkdownBlock) {
         guard blockViews.indices.contains(index) else { return }
         let needsKind = BlockViewKind.kind(for: block.kind)
@@ -202,6 +208,7 @@ final class BlockStackView: UIView {
         invalidateIntrinsicContentSize()
     }
 
+    /// 取（缓存的）属性串配置视图，并转发链接点击与代码复制
     private func configure(_ view: any BlockView, with block: MarkdownBlock) {
         let attributed = cache.attributedString(for: block) { [renderer] in
             renderer.render($0)

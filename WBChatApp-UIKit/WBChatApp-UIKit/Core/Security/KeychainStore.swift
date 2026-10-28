@@ -22,8 +22,10 @@ enum KeychainStore: KeychainStoring {
         case unexpectedStatus(OSStatus)
     }
 
+    /// 通用密码项的 service 标识，account 为 `key(for:)` 的结果
     private static let service = "com.wenbo.WBChatApp-UIKit"
 
+    /// 先尝试更新，不存在再新增（首次解锁后可读）
     static func save(_ value: String, for key: String) throws {
         let data = Data(value.utf8)
         let query: [String: Any] = [

@@ -1,7 +1,9 @@
 import Foundation
 import GRDB
 
+/// 会话与消息的持久化接口
 protocol ChatRepository: AnyObject {
+    /// 全部会话，按最近更新倒序
     func allConversations() throws -> [ConversationRecord]
     /// 订阅会话列表变化。
     /// - Parameter onError: 观察内部出错时的回调（可选）。GRDB 的语义是 onError 一旦触发，
@@ -20,12 +22,17 @@ protocol ChatRepository: AnyObject {
     func insertMessage(_ record: MessageRecord) throws
     func updateMessage(_ record: MessageRecord) throws
     func touchConversation(id: String) throws
+    /// 一个事务内插入用户消息 + 空的 streaming 助手消息，返回会话全部消息
     func beginTurn(conversationID: String, text: String, generationID: String) throws -> [MessageRecord]
+    /// 把最后一条助手消息重置为 streaming 并换上新的 generationID，返回会话全部消息
     func beginRegeneration(conversationID: String, messageID: String, generationID: String) throws -> [MessageRecord]
+    /// 写入生成快照（CAS）：generationID 匹配、库中仍为 streaming 且序号更新才写入，返回是否写入
     @discardableResult func saveGeneration(_ record: MessageRecord) throws -> Bool
+    /// 启动时把残留的 streaming 消息标记为 interrupted
     func recoverInterruptedGenerations() throws
 }
 
+/// 基于 GRDB `DatabaseQueue` 的实现
 final class GRDBChatRepository: ChatRepository {
 
     private let queue: DatabaseQueue
@@ -192,11 +199,13 @@ final class GenerationStore: @unchecked Sendable {
 
     init(repository: ChatRepository) { self.repository = repository }
 
+    /// 回调式提交，用于不能 await 的场景（如生成过程中的快照落库）
     func schedule<T>(_ operation: @escaping (ChatRepository) throws -> T,
                      completion: @escaping (Result<T, Error>) -> Void) {
         queue.async { completion(Result { try operation(self.repository) }) }
     }
 
+    /// async 版本，与 schedule 共用同一串行队列，保证先后顺序
     func perform<T>(_ operation: @escaping (ChatRepository) throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {

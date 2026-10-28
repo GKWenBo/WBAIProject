@@ -1,5 +1,6 @@
 import Foundation
 
+/// 支持的服务商，以及各自的默认地址与可选模型
 enum ProviderKind: String, CaseIterable, Codable, Sendable {
     case deepSeek
     case openAI
@@ -21,6 +22,7 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable {
         }
     }
 
+    /// 设置页可选的模型列表，第一个为默认模型
     var availableModels: [String] {
         switch self {
         case .deepSeek:  return ["deepseek-chat", "deepseek-reasoner"]
@@ -35,6 +37,7 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable {
     var usesAnthropicProtocol: Bool { self == .anthropic }
 }
 
+/// 发起一次请求所需的服务商配置快照
 struct ProviderConfig: Equatable, Sendable {
     let kind: ProviderKind
     let baseURL: URL

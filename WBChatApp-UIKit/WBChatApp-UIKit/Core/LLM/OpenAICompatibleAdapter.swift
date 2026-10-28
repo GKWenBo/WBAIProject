@@ -37,6 +37,7 @@ struct OpenAICompatibleAdapter: ProviderAdapter {
     func makeMapper() -> SSEChunkMapper { OpenAIChunkMapper() }
 }
 
+/// OpenAI 兼容协议的 SSE 映射：无状态，每帧 `data` 独立解析，`[DONE]` 为结束标记。
 struct OpenAIChunkMapper: SSEChunkMapper {
 
     mutating func map(_ event: SSEEvent) throws -> [StreamChunk] {

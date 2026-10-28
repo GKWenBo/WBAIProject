@@ -1,6 +1,7 @@
 import Foundation
 import GRDB
 
+/// SQLite 数据库的创建位置与表结构迁移
 enum AppDatabase {
 
     /// `url` 传 nil 建内存库，供测试使用。
@@ -29,6 +30,7 @@ enum AppDatabase {
         return base.appendingPathComponent("WBChatApp/chat.sqlite")
     }
 
+    /// 按版本顺序登记迁移；已发布的迁移不能修改，只能追加
     private static var migrator: DatabaseMigrator {
         var migrator = DatabaseMigrator()
 

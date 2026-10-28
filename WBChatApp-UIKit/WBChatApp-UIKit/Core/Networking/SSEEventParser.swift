@@ -15,15 +15,18 @@ final class SSEEventParser {
     /// 单独消费 CR 后，下一字节若为 LF，则它只是同一个 CRLF 的后半段。
     private var shouldSkipLeadingLF = false
 
+    // 当前事件正在累积的字段，空行派发后清空（id 按规范跨事件保留）
     private var eventType: String?
     private var dataLines: [String] = []
     private var lastEventID: String?
     private var retry: Int?
 
+    /// 喂入一段数据，返回其中凑齐的完整事件
     func consume(_ data: Data) -> [SSEEvent] {
         data.flatMap { consume(byte: $0) }
     }
 
+    /// 逐字节喂入：遇到 CR/LF 切出一行交给 `handle(line:)`
     func consume(byte: UInt8) -> [SSEEvent] {
         if shouldSkipLeadingLF {
             shouldSkipLeadingLF = false

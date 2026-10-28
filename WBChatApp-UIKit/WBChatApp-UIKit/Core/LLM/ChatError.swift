@@ -1,16 +1,25 @@
 import Foundation
 
+/// 全工程统一的错误类型：网络、协议、存储、并发限制等错误都归一到这里。
 enum ChatError: Error, Equatable {
     case missingAPIKey
+    /// 401 / 403
     case unauthorized
+    /// 429，retryAfter 来自响应头 Retry-After
     case rateLimited(retryAfter: TimeInterval?)
     case serverError(status: Int, message: String?)
     case network(code: Int)
+    /// 网络空闲、语义无进展或总时长超时
     case timeout
+    /// 报文无法解析，关联值为原始内容
     case decoding(String)
+    /// 连接已断开但没收到停止原因
     case interruptedStream
+    /// 落库失败
     case storage
+    /// 同时生成的会话数达到上限
     case generationLimit
+    /// 用户主动停止
     case cancelled
 
     /// 所有面向用户的文案集中在这里，便于后续本地化。

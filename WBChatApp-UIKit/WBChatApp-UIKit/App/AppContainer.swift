@@ -6,7 +6,9 @@ import UIKit
 @MainActor
 final class AppContainer {
 
+    /// 服务商、模型、系统提示词等用户配置
     let settings = AppSettings()
+    /// 会话与消息的持久化入口
     let repository: ChatRepository
 
     /// 渲染相关的对象全局共用，缓存才能跨消息复用
@@ -16,6 +18,7 @@ final class AppContainer {
     /// 无视图测高用的 TextKit 2 栈，共享一套避免每个块视图各建一份
     let measurer = TextKitMeasurer()
 
+    /// 全局唯一的生成协调器：持有所有会话的流式任务，切换会话不会中断生成
     lazy var generations = ChatGenerationCoordinator(repository: repository,
         providerFactory: { [weak self] in self?.makeProvider() ?? MockProvider() },
         configProvider: { [weak self] in (self?.settings.model ?? "", self?.settings.systemPrompt) },
@@ -23,6 +26,7 @@ final class AppContainer {
 
     private init(repository: ChatRepository) { self.repository = repository }
 
+    /// 后台线程打开数据库，并把上次被杀进程时残留的"生成中"消息标记为中断
     static func open() async throws -> AppContainer {
         let repository = try await Task.detached(priority: .userInitiated) {
             let queue = try AppDatabase.makeQueue(at: AppDatabase.defaultURL())
@@ -126,6 +130,7 @@ extension AppContainer {
         return drawer
     }
 
+    /// 导航栏左侧的抽屉开关按钮
     @MainActor
     private func makeMenuItem(drawer: DrawerContainerViewController) -> UIBarButtonItem {
         let item = UIBarButtonItem(image: UIImage(systemName: "line.3.horizontal"),

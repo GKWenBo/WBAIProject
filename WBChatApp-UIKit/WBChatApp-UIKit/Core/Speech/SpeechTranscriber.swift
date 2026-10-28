@@ -2,8 +2,11 @@ import Foundation
 import Speech
 import AVFoundation
 
+/// 识别过程中吐出的事件
 enum SpeechEvent: Equatable {
+    /// 中间结果，会被后续结果覆盖
     case partial(String)
+    /// 最终结果，之后流结束
     case final(String)
     /// 归一化到 0…1 的音量，用来驱动波形
     case level(Float)
@@ -15,8 +18,10 @@ enum SpeechError: Error, Equatable {
     case audioEngineFailed
 }
 
+/// 语音转文字的抽象，便于测试替换
 protocol SpeechTranscribing: AnyObject {
     func requestAuthorization() async -> Bool
+    /// 开始录音识别；取消流的迭代会自动 stop
     func start() throws -> AsyncThrowingStream<SpeechEvent, Error>
     func stop()
 }
@@ -29,6 +34,7 @@ final class SystemSpeechTranscriber: SpeechTranscribing {
 
     private let recognizer: SFSpeechRecognizer?
     private let audioEngine = AVAudioEngine()
+    /// 本次识别的音频输入请求
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
 
@@ -54,6 +60,7 @@ final class SystemSpeechTranscriber: SpeechTranscribing {
         }
     }
 
+    /// 配置音频会话 → 创建识别任务 → 安装麦克风 tap → 启动音频引擎
     func start() throws -> AsyncThrowingStream<SpeechEvent, Error> {
         guard let recognizer, recognizer.isAvailable else {
             throw SpeechError.recognizerUnavailable
@@ -101,6 +108,7 @@ final class SystemSpeechTranscriber: SpeechTranscribing {
         }
     }
 
+    /// 停止录音、结束识别并释放音频会话，可重复调用
     func stop() {
         audioEngine.inputNode.removeTap(onBus: 0)
         if audioEngine.isRunning { audioEngine.stop() }

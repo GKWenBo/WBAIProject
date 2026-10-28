@@ -6,6 +6,7 @@ import UIKit
 /// cell 本身又会被 tableView 反复复用。没有这个池子，滚动时会不断新建 TextView。
 final class BlockViewPool {
 
+    /// 按分类存放的空闲视图
     private var idle: [BlockViewKind: [any BlockView]] = [:]
 
     /// 每类最多缓存多少个空闲实例，防止无限增长
@@ -15,6 +16,7 @@ final class BlockViewPool {
         self.capacityPerKind = capacityPerKind
     }
 
+    /// 借出一个视图，池空时新建
     func dequeue(_ kind: BlockViewKind) -> any BlockView {
         if var queue = idle[kind], let view = queue.popLast() {
             idle[kind] = queue
@@ -23,6 +25,7 @@ final class BlockViewPool {
         return make(kind)
     }
 
+    /// 归还视图：清理并移出视图层级，超过容量直接丢弃
     func recycle(_ view: any BlockView) {
         let kind = type(of: view).viewKind
         view.prepareForReuse()
