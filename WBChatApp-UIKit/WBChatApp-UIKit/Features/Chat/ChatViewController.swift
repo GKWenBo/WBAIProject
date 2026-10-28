@@ -48,6 +48,9 @@ final class ChatViewController: UIViewController {
     /// 正在流式的那条消息，用来直接拿 cell 打补丁
     private var streamingMessageID: String?
 
+    /// 「重新生成」时给那一行定的最低行高，见 `rowHeight(_:for:)`
+    private var regenerationFloor: (messageID: String, height: CGFloat)?
+
     /// 离屏测量专用的常驻 cell（助手/用户各一个），不加入视图层级。
     /// 关键：AssistantMessageCell 内部的 BlockStackView 持有的是共享的 BlockViewPool，
     /// 如果每次测量都 `AssistantMessageCell(...)` 新建一个，上一次测量借走的块视图
@@ -111,6 +114,8 @@ final class ChatViewController: UIViewController {
         if cachedWidth != tableView.bounds.width {
             cachedWidth = tableView.bounds.width
             heightCache.removeAll()
+            // 下限是按旧宽度量出来的，换宽度后已无意义
+            regenerationFloor = nil
             tableView.reloadData()
         }
     }
@@ -195,9 +200,12 @@ final class ChatViewController: UIViewController {
                                cache: self.cache,
                                renderer: self.renderer,
                                measurer: self.measurer,
-                               canRetry: message.id == self.viewModel.state.messages.last?.id && (self.viewModel.state.canSend || self.viewModel.state.hasUnsavedContent),
-                               retryTitle: self.viewModel.state.hasUnsavedContent ? "重试保存" : "重新生成")
+                               canCopy: !message.text.isEmpty,
+                               trailingAction: self.trailingAction(for: message))
                 cell.onCodeCopy = { _ in Haptics.success() }
+                cell.onCopy = { [weak self] in
+                    self?.handleCopyTapped(messageID: message.id)
+                }
                 cell.onLinkTap = { url in UIApplication.shared.open(url) }
                 // Critical 1：闭包在这里按当前这一行的 message.id 捕获,
                 // 转发前交给 handleRetryTapped 用点击那一刻最新的 state 复核一遍,
@@ -265,6 +273,11 @@ final class ChatViewController: UIViewController {
         snapshot.appendSections([0])
         snapshot.appendItems(state.messages.map(\.id))
 
+        // 有新消息追加（用户又发了一条）时，视口本来就要整体上移，重新生成的行高下限随之作废
+        if let floor = regenerationFloor, state.messages.last?.id != floor.messageID {
+            regenerationFloor = nil
+        }
+
         // 这里只处理结构/状态变化；token 增量仍走补丁。保留旧内容时也要立刻隐藏重试按钮。
         let existing = Set(dataSource.snapshot().itemIdentifiers)
         snapshot.reconfigureItems(state.messages.map(\.id).filter { existing.contains($0) })
@@ -318,7 +331,7 @@ final class ChatViewController: UIViewController {
 
         cell.applyPatch(patch)
 
-        let newHeight = cell.heightThatFits(width: tableView.bounds.width)
+        let newHeight = rowHeight(cell.heightThatFits(width: tableView.bounds.width), for: messageID)
         let oldHeight = heightCache[messageID]
         heightCache[messageID] = newHeight
 
@@ -337,7 +350,7 @@ final class ChatViewController: UIViewController {
               let cell = tableView.cellForRow(at: indexPath) as? AssistantMessageCell else { return }
         cell.updateReasoning(text)
 
-        let newHeight = cell.heightThatFits(width: tableView.bounds.width)
+        let newHeight = rowHeight(cell.heightThatFits(width: tableView.bounds.width), for: messageID)
         let oldHeight = heightCache[messageID]
         heightCache[messageID] = newHeight
 
@@ -358,7 +371,7 @@ final class ChatViewController: UIViewController {
         guard let indexPath = indexPath(for: messageID),
               let cell = tableView.cellForRow(at: indexPath) as? AssistantMessageCell else { return }
 
-        let newHeight = cell.heightThatFits(width: tableView.bounds.width)
+        let newHeight = rowHeight(cell.heightThatFits(width: tableView.bounds.width), for: messageID)
         let oldHeight = heightCache[messageID]
         heightCache[messageID] = newHeight
 
@@ -398,8 +411,8 @@ final class ChatViewController: UIViewController {
     /// Critical 1：`AssistantMessageCell.onRetry` 只是「这颗按钮被点了」的信号,
     /// 不代表点它的这条消息现在还是最后一条助手消息——cell 可能残留着一条
     /// 已经不是最后一条的失败消息的按钮。真正转发给 `retryLast()` 之前,
-    /// 必须用点击那一刻最新的 `viewModel.state` 重新核对,标准与长按菜单
-    /// 的 `isLastAssistant` 判断保持一致(见 `contextMenuConfigurationForRowAt`)。
+    /// 必须用点击那一刻最新的 `viewModel.state` 重新核对,标准与
+    /// `trailingAction(for:)` 决定按钮显隐的判断保持一致。
     private func handleRetryTapped(messageID: String) {
         guard !viewModel.state.isStreaming,
               viewModel.state.messages.last?.id == messageID else { return }
@@ -407,8 +420,42 @@ final class ChatViewController: UIViewController {
             Task { await viewModel.retrySave() }
         } else {
             autoScroll.didSendMessage()
+            holdHeightForRegeneration(messageID: messageID)
             Task { await viewModel.retryLast() }
         }
+    }
+
+    /// 重新生成防跳动：首个增量到达时 `blocksReset` 会把旧答案整段清空，
+    /// 行高骤降，贴底逻辑随即把视口往回拉一大截，再随新内容逐帧往上推——
+    /// 肉眼看就是整屏先往下跳、再往上爬。这里把该行当前高度记为下限，
+    /// 新内容在原位置从上往下写，不足的部分留白；直到用户再发一条消息
+    /// （视口本来就要整体上移）才撤销下限，结束时也不会因为新答案更短而回缩。
+    private func holdHeightForRegeneration(messageID: String) {
+        guard let indexPath = indexPath(for: messageID) else { return }
+        let current = heightCache[messageID] ?? tableView.rectForRow(at: indexPath).height
+        guard current > 0 else { return }
+        regenerationFloor = (messageID, current)
+    }
+
+    private func rowHeight(_ measured: CGFloat, for messageID: String) -> CGFloat {
+        guard let floor = regenerationFloor, floor.messageID == messageID else { return measured }
+        return max(measured, floor.height)
+    }
+
+    /// 操作栏右侧按钮：只有最后一条助手消息才有。落库失败时给「重试保存」,
+    /// 能发送时给「重新生成」,其余（生成中、准备中）不出按钮。
+    private func trailingAction(for message: ChatViewModel.MessageViewData) -> MessageActionBar.Trailing {
+        let state = viewModel.state
+        guard message.role == .assistant, message.id == state.messages.last?.id else { return .none }
+        if state.hasUnsavedContent { return .retrySave }
+        return state.canSend ? .regenerate : .none
+    }
+
+    /// 流式期间 `message.text` 可能还是旧值，`displayText(for:)` 读的是协调器
+    /// 最新快照，复制出来的内容与屏幕一致。
+    private func handleCopyTapped(messageID: String) {
+        UIPasteboard.general.string = viewModel.displayText(for: messageID)
+        Haptics.success()
     }
 
     // MARK: - 贴底
@@ -571,7 +618,7 @@ extension ChatViewController: UITableViewDelegate {
         guard let message = viewModel.state.messages.first(where: { $0.id == messageID }) else {
             return 0
         }
-        let height = measureHeight(for: message, width: tableView.bounds.width)
+        let height = rowHeight(measureHeight(for: message, width: tableView.bounds.width), for: messageID)
         heightCache[messageID] = height
         return height
     }
@@ -597,8 +644,8 @@ extension ChatViewController: UITableViewDelegate {
                            status: message.status,
                            errorText: message.errorText,
                            pool: pool, cache: cache, renderer: renderer, measurer: measurer,
-                           canRetry: message.id == viewModel.state.messages.last?.id && (viewModel.state.canSend || viewModel.state.hasUnsavedContent),
-                           retryTitle: viewModel.state.hasUnsavedContent ? "重试保存" : "重新生成")
+                           canCopy: !message.text.isEmpty,
+                           trailingAction: trailingAction(for: message))
             return cell.heightThatFits(width: width)
         }
     }
@@ -621,40 +668,5 @@ extension ChatViewController: UITableViewDelegate {
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         autoScroll.didEndDecelerating(distanceToBottom: distanceToBottom)
-    }
-
-    // MARK: 长按菜单
-
-    func tableView(_ tableView: UITableView,
-                   contextMenuConfigurationForRowAt indexPath: IndexPath,
-                   point: CGPoint) -> UIContextMenuConfiguration? {
-        guard let messageID = dataSource.itemIdentifier(for: indexPath),
-              let message = viewModel.state.messages.first(where: { $0.id == messageID })
-        else { return nil }
-
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-            var actions: [UIAction] = [
-                // Important 3：流式期间 message.text(= state 里的 text)恒为空——
-                // ChatViewModel 只在 finishStream() 落库时才回写 text,中途增量只进
-                // blocksByMessage,不进 state.messages[...].text。直接用 message.text
-                // 会导致「正在生成的消息」被复制成空字符串。改用 displayText(for:),
-                // 它在命中当前正在流式的这条消息时会回退到 accumulatedText。
-                UIAction(title: "复制", image: UIImage(systemName: "doc.on.doc")) { [weak self] _ in
-                    UIPasteboard.general.string = self?.viewModel.displayText(for: messageID) ?? message.text
-                    Haptics.success()
-                }
-            ]
-            // 只有最后一条助手消息、且当前不在流式中，才允许重新生成
-            let isLastAssistant = message.role == .assistant
-                && self?.viewModel.state.messages.last?.id == messageID
-            if isLastAssistant, self?.viewModel.state.canSend == true {
-                actions.append(UIAction(title: "重新生成",
-                                        image: UIImage(systemName: "arrow.clockwise")) { _ in
-                    self?.autoScroll.didSendMessage()
-                    Task { await self?.viewModel.retryLast() }
-                })
-            }
-            return UIMenu(children: actions)
-        }
     }
 }

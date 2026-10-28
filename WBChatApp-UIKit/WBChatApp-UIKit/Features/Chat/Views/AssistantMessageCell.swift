@@ -29,23 +29,17 @@ final class AssistantMessageCell: UITableViewCell {
 
     var onLinkTap: ((URL) -> Void)?
     var onCodeCopy: ((String) -> Void)?
-    /// 生成失败或被用户停止时，点击「重新生成」按钮触发
+    /// 点击操作栏的「复制」
+    var onCopy: (() -> Void)?
+    /// 点击操作栏的「重新生成」或「重试保存」
     var onRetry: (() -> Void)?
     /// C2 修复：思考过程折叠区被展开/收起时触发。`ReasoningSectionView.onToggle`
     /// 本身只负责喊一嗓子「我被点了」，具体「行高要不要重新查询、tableView 要不要
     /// beginUpdates/endUpdates」是控制器层的事——这里只做转发。
     var onReasoningToggled: (() -> Void)?
 
-    private lazy var retryButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.setTitle("重新生成", for: .normal)
-        button.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
-        button.accessibilityIdentifier = "message.retry"
-        button.isHidden = true
-        button.addTarget(self, action: #selector(handleRetry), for: .touchUpInside)
-        contentView.addSubview(button)
-        return button
-    }()
+    /// 常驻操作栏，始终占位，见 `MessageActionBar` 的说明
+    private let actionBar = MessageActionBar()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -53,11 +47,16 @@ final class AssistantMessageCell: UITableViewCell {
         backgroundColor = .clear
         contentView.addSubview(reasoningView)
         contentView.addSubview(errorLabel)
+        contentView.addSubview(actionBar)
         reasoningView.onToggle = { [weak self] in self?.onReasoningToggled?() }
+        bindActionBar()
     }
 
-    @objc private func handleRetry() {
-        onRetry?()
+    /// 操作栏的回调转发到 cell 的公开回调；`prepareForReuse` 里 `actionBar.reset()`
+    /// 会清掉这层转发，所以复位后要重新接上
+    private func bindActionBar() {
+        actionBar.onCopy = { [weak self] in self?.onCopy?() }
+        actionBar.onTrailing = { [weak self] in self?.onRetry?() }
     }
 
     @available(*, unavailable)
@@ -76,7 +75,8 @@ final class AssistantMessageCell: UITableViewCell {
                    cache: AttributedCache,
                    renderer: AttributedRenderer,
                    measurer: TextKitMeasurer,
-                   canRetry: Bool = true, retryTitle: String = "重新生成") {
+                   canCopy: Bool = false,
+                   trailingAction: MessageActionBar.Trailing = .none) {
         let stack: BlockStackView
         if let existing = stackView {
             stack = existing
@@ -96,9 +96,10 @@ final class AssistantMessageCell: UITableViewCell {
         errorLabel.isHidden = (errorText?.isEmpty ?? true)
         errorLabel.text = errorText
 
-        // 只有失败或被中途停止的消息才展示「重新生成」入口
-        retryButton.isHidden = !canRetry || (status != .failed && status != .stopped && status != .interrupted)
-        retryButton.setTitle(retryTitle, for: .normal)
+        // 流式中的消息只占位不出按钮；其余由调用方按「是否最后一条、能否发送」决定
+        let isStreaming = status == .streaming
+        actionBar.configure(canCopy: canCopy && !isStreaming,
+                            trailing: isStreaming ? .none : trailingAction)
 
         setNeedsLayout()
     }
@@ -113,16 +114,15 @@ final class AssistantMessageCell: UITableViewCell {
     /// 必须整段清空块视图，否则下一帧到达的补丁会被 `BlockStackView.applyPatch`
     /// 顶部「上一帧未闭合块」特判整段跳过，把新内容 append 在旧的失败内容之后。
     ///
-    /// Critical 2：这里必须顺带把「重新生成」按钮也立即隐藏。diffable data source
+    /// Critical 2：这里必须顺带把操作栏按钮也立即隐藏。diffable data source
     /// 对身份不变的行不会重新请求 cell，`configure()` 要等这一轮流
     /// `streamFinished`/`failed` 触发 `invalidateHeight()` 才会再跑一次；
     /// 如果只清空块视图不隐藏按钮，新一轮流式期间按钮会一直留在屏幕上——
-    /// 可点但点了被 `retryLast()` 内部的 `guard !state.isStreaming` 静默吞掉，
-    /// 而且离屏测量此时已经按 `.streaming` 算出更矮的行高，`layoutSubviews`
-    /// 却还在按旧的 `retryButton.isHidden == false` 摆放这个按钮，会压在新内容上。
+    /// 可点但点了被 `retryLast()` 内部的 `guard !state.isStreaming` 静默吞掉。
+    /// 操作栏本身保持占位，行高不因按钮显隐变化。
     func resetBlocks() {
         stackView?.setBlocks([])
-        retryButton.isHidden = true
+        actionBar.configure(canCopy: false, trailing: .none)
         setNeedsLayout()
     }
 
@@ -143,9 +143,7 @@ final class AssistantMessageCell: UITableViewCell {
             height += errorLabel.sizeThatFits(CGSize(width: contentWidth,
                                                      height: .greatestFiniteMagnitude)).height + 8
         }
-        if !retryButton.isHidden {
-            height += 32
-        }
+        height += MessageActionBar.height
         return ceil(height)
     }
 
@@ -171,12 +169,12 @@ final class AssistantMessageCell: UITableViewCell {
                                                         height: .greatestFiniteMagnitude)).height
             errorLabel.frame = CGRect(x: Self.horizontalInset, y: y + 8,
                                       width: contentWidth, height: height)
+            y += height + 8
         }
-        if !retryButton.isHidden {
-            retryButton.frame = CGRect(x: Self.horizontalInset,
-                                       y: contentView.bounds.height - Self.verticalInset - 28,
-                                       width: 100, height: 28)
-        }
+        // 紧跟内容摆放而不是贴 cell 底部：重新生成期间行高可能被控制器撑高
+        // （见 `ChatViewController.holdHeightForRegeneration`），多出来的留白在操作栏下方
+        actionBar.frame = CGRect(x: Self.horizontalInset, y: y,
+                                 width: contentWidth, height: MessageActionBar.height)
     }
 
     /// 供测试断言补丁确实转发到了容器（`BlockStackView.blockCount` 本身已是公开的）
@@ -198,9 +196,11 @@ final class AssistantMessageCell: UITableViewCell {
         // isHidden = true 或换绑新消息就自动复位，必须显式收起。
         reasoningView.collapse()
         errorLabel.isHidden = true
-        retryButton.isHidden = true
+        actionBar.reset()
+        bindActionBar()
         onLinkTap = nil
         onCodeCopy = nil
+        onCopy = nil
         onRetry = nil
         onReasoningToggled = nil
     }

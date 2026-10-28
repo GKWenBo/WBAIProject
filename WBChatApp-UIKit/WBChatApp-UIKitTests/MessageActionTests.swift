@@ -147,76 +147,111 @@ struct MessageActionTests {
     }
 }
 
-/// 覆盖 `AssistantMessageCell` 的 `status` → 重试按钮这条链路。
-///
-/// 补充说明：简报只要求 `MessageActionTests.swift` 覆盖 `retryLast()` 的
-/// ViewModel 语义（4 个用例，均在 Step 2 就已经全绿——因为前置任务已经把
-/// `retryLast()` 实现完整，参见任务简报的「上下文」小节）。这意味着严格按
-/// 简报的 4 个用例走不到红色阶段，无法验证本任务真正要新增的 UI 部分：
-/// `configure(...)` 的 `status` 参数此前完全没被 cell 用到（历次审查标注过），
-/// 本任务给它接上第一个消费方——失败/停止状态下露出「重新生成」按钮。
-/// 这里补两个 cell 级用例，直接对着 Step 3 的改动写 RED/GREEN，避免
-/// 「测试全绿但没人验证过新代码路径」这种假通过。
-@Suite("助手消息 cell 重试按钮")
+/// 覆盖 `AssistantMessageCell` 底部操作栏（复制 / 重新生成）的显隐、回调与占位。
+@Suite("助手消息 cell 操作栏")
 @MainActor
-struct AssistantMessageCellRetryTests {
+struct AssistantMessageCellActionBarTests {
 
     private func makeCell() -> AssistantMessageCell {
         AssistantMessageCell(style: .default, reuseIdentifier: nil)
     }
 
-    private func configure(_ cell: AssistantMessageCell, status: MessageStatus) {
+    private func configure(_ cell: AssistantMessageCell, status: MessageStatus,
+                           canCopy: Bool = true,
+                           trailing: MessageActionBar.Trailing = .regenerate) {
         cell.configure(blocks: [], reasoning: nil, status: status, errorText: nil,
                        pool: BlockViewPool(), cache: AttributedCache(), renderer: AttributedRenderer(),
-                       measurer: TextKitMeasurer())
+                       measurer: TextKitMeasurer(), canCopy: canCopy, trailingAction: trailing)
     }
 
-    private func retryButton(in cell: AssistantMessageCell) -> UIButton? {
-        cell.contentView.subviews.first { $0.accessibilityIdentifier == "message.retry" } as? UIButton
+    private func button(_ identifier: String, in view: UIView) -> UIButton? {
+        if let button = view as? UIButton, button.accessibilityIdentifier == identifier { return button }
+        for subview in view.subviews {
+            if let found = button(identifier, in: subview) { return found }
+        }
+        return nil
     }
 
-    @Test("失败或停止状态下重试按钮可见，其余状态隐藏")
-    func retryButtonVisibilityFollowsStatus() {
+    @Test("非流式时按调用方给的配置显示按钮，流式中全部隐藏")
+    func buttonVisibilityFollowsStatus() {
         let cell = makeCell()
 
-        configure(cell, status: .failed)
-        #expect(retryButton(in: cell)?.isHidden == false)
-
-        configure(cell, status: .stopped)
-        #expect(retryButton(in: cell)?.isHidden == false)
-
-        configure(cell, status: .completed)
-        #expect(retryButton(in: cell)?.isHidden == true)
+        for status in [MessageStatus.completed, .failed, .stopped, .interrupted] {
+            configure(cell, status: status)
+            #expect(button("message.copy", in: cell)?.isHidden == false)
+            #expect(button("message.regenerate", in: cell)?.isHidden == false)
+        }
 
         configure(cell, status: .streaming)
-        #expect(retryButton(in: cell)?.isHidden == true)
+        #expect(button("message.copy", in: cell)?.isHidden == true)
+        #expect(button("message.regenerate", in: cell)?.isHidden == true)
+
+        configure(cell, status: .completed, canCopy: false, trailing: .none)
+        #expect(button("message.copy", in: cell)?.isHidden == true)
+        #expect(button("message.regenerate", in: cell)?.isHidden == true)
+
+        configure(cell, status: .failed, trailing: .retrySave)
+        #expect(button("message.regenerate", in: cell)?.isHidden == true)
+        #expect(button("message.retrySave", in: cell)?.isHidden == false)
     }
 
-    @Test("点击重试按钮触发 onRetry")
-    func tappingRetryButtonFiresCallback() throws {
+    @Test("操作栏始终占位：流式与完成态行高一致，按钮显隐不引起跳动")
+    func actionBarAlwaysReservesHeight() {
         let cell = makeCell()
-        configure(cell, status: .failed)
-
-        var fired = false
-        cell.onRetry = { fired = true }
-
-        let button = try #require(retryButton(in: cell))
-        button.sendActions(for: .touchUpInside)
-        #expect(fired)
+        configure(cell, status: .streaming)
+        let streamingHeight = cell.heightThatFits(width: 390)
+        configure(cell, status: .completed)
+        #expect(cell.heightThatFits(width: 390) == streamingHeight)
+        configure(cell, status: .completed, canCopy: false, trailing: .none)
+        #expect(cell.heightThatFits(width: 390) == streamingHeight)
     }
 
-    @Test("prepareForReuse 后重试按钮隐藏且回调清空")
-    func prepareForReuseResetsRetryButton() throws {
+    @Test("点击复制触发 onCopy，点击重新生成或重试保存触发 onRetry")
+    func tappingButtonsFiresCallbacks() throws {
+        let cell = makeCell()
+        configure(cell, status: .completed)
+        var copied = false
+        var retried = 0
+        cell.onCopy = { copied = true }
+        cell.onRetry = { retried += 1 }
+
+        try #require(button("message.copy", in: cell)).sendActions(for: .touchUpInside)
+        try #require(button("message.regenerate", in: cell)).sendActions(for: .touchUpInside)
+        configure(cell, status: .failed, trailing: .retrySave)
+        try #require(button("message.retrySave", in: cell)).sendActions(for: .touchUpInside)
+
+        #expect(copied)
+        #expect(retried == 2)
+    }
+
+    @Test("prepareForReuse 后按钮隐藏且回调清空")
+    func prepareForReuseResetsActionBar() throws {
         let cell = makeCell()
         configure(cell, status: .failed)
         var fired = false
         cell.onRetry = { fired = true }
+        cell.onCopy = { fired = true }
 
         cell.prepareForReuse()
 
-        let button = try #require(retryButton(in: cell))
-        #expect(button.isHidden, "复用前应重新隐藏，避免下一次 configure 前露出旧状态")
-        button.sendActions(for: .touchUpInside)
-        #expect(!fired, "prepareForReuse 应清空 onRetry，避免复用后的 cell 仍触发上一条消息的回调")
+        let regenerate = try #require(button("message.regenerate", in: cell))
+        let copy = try #require(button("message.copy", in: cell))
+        #expect(regenerate.isHidden, "复用前应重新隐藏，避免下一次 configure 前露出旧状态")
+        #expect(copy.isHidden)
+        regenerate.sendActions(for: .touchUpInside)
+        copy.sendActions(for: .touchUpInside)
+        #expect(!fired, "prepareForReuse 应清空回调，避免复用后的 cell 仍触发上一条消息的回调")
+    }
+
+    @Test("prepareForReuse 后重新赋值的回调仍能被操作栏触发")
+    func callbacksWorkAfterReuse() throws {
+        let cell = makeCell()
+        configure(cell, status: .completed)
+        cell.prepareForReuse()
+        configure(cell, status: .completed)
+        var copied = false
+        cell.onCopy = { copied = true }
+        try #require(button("message.copy", in: cell)).sendActions(for: .touchUpInside)
+        #expect(copied)
     }
 }

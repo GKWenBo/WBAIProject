@@ -87,9 +87,17 @@ struct ChatViewControllerTests {
     }
 
     /// 与 MessageActionTests 里的同名 helper 逻辑一致：靠 accessibilityIdentifier
-    /// 从 cell 的 contentView 里找「重新生成」按钮，不新增测试专用的公开 API。
+    /// 从 cell 的操作栏里找「重新生成」按钮，不新增测试专用的公开 API。
     private func retryButton(in cell: AssistantMessageCell) -> UIButton? {
-        cell.contentView.subviews.first { $0.accessibilityIdentifier == "message.retry" } as? UIButton
+        button(in: cell.contentView, identifier: "message.regenerate")
+    }
+
+    private func button(in view: UIView, identifier: String) -> UIButton? {
+        if let button = view as? UIButton, button.accessibilityIdentifier == identifier { return button }
+        for subview in view.subviews {
+            if let found = button(in: subview, identifier: identifier) { return found }
+        }
+        return nil
     }
 
     private func insert(_ repository: GRDBChatRepository, id: String, conversationID: String,
@@ -284,15 +292,68 @@ struct ChatViewControllerTests {
         withExtendedLifetime(window) {}
     }
 
-    // MARK: - Important 3：说明
+    // MARK: - 操作栏：复制
 
-    // `UIContextMenuConfiguration` 的 `actionProvider`/`previewProvider` 只在初始化时
-    // 写入，没有公开的读取入口（`@testable import` 也拿不到，SDK 头文件里确实没有
-    // 对应属性），所以长按菜单「复制」这条 VC 接线没法在测试里从配置对象上把闭包
-    // 抠出来再调用验证。核心的判定逻辑——流式期间要不要回退到 accumulatedText——
-    // 已经在 ChatViewModelTests.swift 里用
-    // `displayTextDuringStreamingReturnsAccumulatedText` /
-    // `displayTextAfterFinishMatchesText` 两个纯逻辑用例覆盖了；ChatViewController
-    // 侧改动本身只是把 `message.text` 换成 `viewModel.displayText(for: messageID)`
-    // 这一行，已用人工审查确认接线正确。
+    @Test("点击操作栏的复制，把该消息的完整内容写入剪贴板")
+    func copyButtonWritesDisplayTextToPasteboard() throws {
+        let (vc, _, _, repository, conversationID, _) = try make(chunks: [])
+        try insert(repository, id: "userA", conversationID: conversationID, ordinal: 0,
+                  role: .user, content: "问题", status: .completed)
+        try insert(repository, id: "assistantA", conversationID: conversationID, ordinal: 1,
+                  role: .assistant, content: "## 标题\n\n正文", status: .completed)
+        _ = vc.view
+
+        let table = try tableView(of: vc)
+        let ds = try diffableDataSource(vc)
+        let indexPath = try #require(ds.indexPath(for: "assistantA"))
+        let cell = try #require(ds.tableView(table, cellForRowAt: indexPath) as? AssistantMessageCell)
+        let copy = try #require(button(in: cell.contentView, identifier: "message.copy"))
+        #expect(!copy.isHidden)
+
+        UIPasteboard.general.string = ""
+        copy.sendActions(for: .touchUpInside)
+        #expect(UIPasteboard.general.string == "## 标题\n\n正文")
+    }
+
+    // MARK: - 重新生成防跳动
+
+    /// 首个增量到达时 `blocksReset` 会清空旧答案。若行高跟着骤降，贴底逻辑会把
+    /// 视口往回拉一大截，表现为整屏跳动。重新生成期间该行高度不得低于点击前的高度，
+    /// 流结束后（新答案更短）也保持，直到用户再发新消息。
+    @Test("重新生成时被重置的那一行高度不回缩")
+    func regenerationKeepsRowHeight() async throws {
+        let (vc, viewModel, throttle, repository, conversationID, providerBox) =
+            try make(chunks: [.textDelta("短"), .done(finishReason: "stop")])
+        try insert(repository, id: "userA", conversationID: conversationID, ordinal: 0,
+                  role: .user, content: "问题", status: .completed)
+        let longAnswer = String(repeating: "这是一段比较长的旧回答，需要占好几行。", count: 30)
+        try insert(repository, id: "assistantA", conversationID: conversationID, ordinal: 1,
+                  role: .assistant, content: longAnswer, status: .completed)
+        _ = vc.view
+        let window = attachToWindow(vc)
+
+        let table = try tableView(of: vc)
+        let ds = try diffableDataSource(vc)
+        let indexPath = try #require(ds.indexPath(for: "assistantA"))
+        await waitUntil(table.cellForRow(at: indexPath) != nil)
+        let originalHeight = vc.tableView(table, heightForRowAt: indexPath)
+        let cell = try #require(table.cellForRow(at: indexPath) as? AssistantMessageCell)
+
+        retryButton(in: cell)?.sendActions(for: .touchUpInside)
+        for _ in 0..<200 where !viewModel.state.isStreaming {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let provider = try #require(providerBox.current)
+        await provider.deliverNext()
+        throttle.fire()
+        #expect(vc.tableView(table, heightForRowAt: indexPath) >= originalHeight,
+                "旧答案被清空后行高不能骤降，否则视口会跳")
+
+        await provider.finish()
+        await waitForStreamEnd(viewModel)
+        #expect(vc.tableView(table, heightForRowAt: indexPath) >= originalHeight,
+                "新答案更短时也不回缩，避免结束瞬间再跳一次")
+
+        withExtendedLifetime(window) {}
+    }
 }
