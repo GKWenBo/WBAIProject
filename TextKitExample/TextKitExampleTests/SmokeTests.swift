@@ -9,9 +9,9 @@ import Testing
 @Suite("工程骨架")
 struct SmokeTests {
 
-    @Test("案例目录有 8 条且编号连续")
+    @Test("案例目录有 10 条且编号连续")
     func catalogIsComplete() {
-        #expect(CaseCatalog.all.count == 8)
-        #expect(CaseCatalog.all.map(\.number) == Array(1...8))
+        #expect(CaseCatalog.all.count == 10)
+        #expect(CaseCatalog.all.map(\.number) == Array(1...10))
     }
 }

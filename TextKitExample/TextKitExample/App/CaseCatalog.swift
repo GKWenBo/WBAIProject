@@ -58,6 +58,16 @@ enum CaseCatalog {
                   title: "行信息与选区",
                   subtitle: "enumerateLineFragments 拿每行的 rect 与范围",
                   badge: "TextKit 1",
-                  make: { LineMetricsViewController() })
+                  make: { LineMetricsViewController() }),
+        CaseEntry(number: 9,
+                  title: "增量更新文本 · TextKit 1",
+                  subtitle: "定时器模拟流式输出，只重排新内容所在的行",
+                  badge: "TextKit 1",
+                  make: { StreamingTextKit1ViewController() }),
+        CaseEntry(number: 10,
+                  title: "增量更新文本 · TextKit 2",
+                  subtitle: "定时器模拟流式输出，只重建最后一段的排版",
+                  badge: "TextKit 2",
+                  make: { StreamingTextKit2ViewController() })
     ]
 }
