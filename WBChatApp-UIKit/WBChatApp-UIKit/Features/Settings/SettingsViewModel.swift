@@ -1,5 +1,14 @@
 import Foundation
 
+/// API Key 输入的处理结果
+enum APIKeyInputResult: Equatable {
+    /// 输入为空（或只有空白），保持原 Key
+    case unchanged
+    case updated
+    /// 内容不像 Key，未保存；关联值为给用户的提示
+    case invalid(String)
+}
+
 /// 设置页：编辑的是 AppSettings 的草稿副本，调用 save() 才落盘。
 @MainActor
 final class SettingsViewModel {
@@ -122,9 +131,18 @@ final class SettingsViewModel {
 
     /// 输入框留空表示“不修改”，避免用户误触空输入把已保存的真实 Key 清空。
     /// 真要清空，需通过 clearAPIKey() 显式操作。
-    func updateAPIKeyIfProvided(_ input: String) {
-        guard !input.isEmpty else { return }
-        apiKey = input
+    ///
+    /// 输入框是密文的，粘错内容（如剪贴板里还是刚复制的代码块）用户看不到，
+    /// 所以这里先去掉首尾空白，再校验只含可打印 ASCII 且无空白，不合法就拒绝落盘。
+    @discardableResult
+    func updateAPIKeyIfProvided(_ input: String) -> APIKeyInputResult {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .unchanged }
+        guard AppSettings.isPlausibleAPIKey(trimmed) else {
+            return .invalid("内容包含空格、换行或中文等字符，不像是 API Key。请确认剪贴板里是 Key 后重新粘贴")
+        }
+        apiKey = trimmed
+        return .updated
     }
 
     /// 显式清空 API Key，对应 UI 上的「清除 Key」操作。

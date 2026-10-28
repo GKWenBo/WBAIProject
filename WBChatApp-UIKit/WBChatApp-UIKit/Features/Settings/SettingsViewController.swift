@@ -141,7 +141,10 @@ final class SettingsViewController: UITableViewController {
             self.viewModel.clearAPIKey()
         })
         alert.addAction(UIAlertAction(title: "确定", style: .default) { _ in
-            self.viewModel.updateAPIKeyIfProvided(alert.textFields?.first?.text ?? "")
+            let result = self.viewModel.updateAPIKeyIfProvided(alert.textFields?.first?.text ?? "")
+            if case .invalid(let message) = result {
+                self.presentMessage(title: "API Key 格式不正确", message: message)
+            }
         })
         present(alert, animated: true)
     }
@@ -183,9 +186,11 @@ final class SettingsViewController: UITableViewController {
     }
 
     private func presentInvalidBaseURLAlert() {
-        let alert = UIAlertController(title: nil,
-                                      message: "接口地址格式不正确，请检查后重试",
-                                      preferredStyle: .alert)
+        presentMessage(title: nil, message: "接口地址格式不正确，请检查后重试")
+    }
+
+    private func presentMessage(title: String?, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "好", style: .default))
         present(alert, animated: true)
     }

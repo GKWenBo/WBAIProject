@@ -239,6 +239,44 @@ struct SettingsViewModelTests {
         #expect(viewModel.apiKey == "sk-new")
     }
 
+    @Test("粘贴的 Key 首尾带空白或换行时自动去掉")
+    func apiKeyInputIsTrimmed() {
+        let (viewModel, _) = make()
+        let result = viewModel.updateAPIKeyIfProvided("  sk-abc123\n")
+        #expect(result == .updated)
+        #expect(viewModel.apiKey == "sk-abc123")
+    }
+
+    @Test("剪贴板里的代码片段被误粘成 Key 时拒绝保存，保留原 Key")
+    func codeSnippetRejectedAsAPIKey() {
+        let (viewModel, _) = make()
+        viewModel.apiKey = "sk-real-secret"
+        // 单行输入框会把换行替换成空格，这是用户实际存进去的内容
+        let pasted = #"func greet(_ name: String) -> String {     // 已闭合的块不会再重新排版     return "你好，\(name)" }"#
+        let result = viewModel.updateAPIKeyIfProvided(pasted)
+        guard case .invalid = result else {
+            Issue.record("应当判定为非法 Key")
+            return
+        }
+        #expect(viewModel.apiKey == "sk-real-secret")
+    }
+
+    @Test("Key 中间含空格或非 ASCII 字符时拒绝保存")
+    func keyWithInnerWhitespaceOrNonASCIIRejected() {
+        let (viewModel, _) = make()
+        #expect(viewModel.updateAPIKeyIfProvided("sk-abc def") != .updated)
+        #expect(viewModel.updateAPIKeyIfProvided("sk-密钥123") != .updated)
+        #expect(viewModel.apiKey == "")
+    }
+
+    @Test("只含空白的输入等同留空，不修改")
+    func whitespaceOnlyInputIsUnchanged() {
+        let (viewModel, _) = make()
+        viewModel.apiKey = "sk-real-secret"
+        #expect(viewModel.updateAPIKeyIfProvided("  \n ") == .unchanged)
+        #expect(viewModel.apiKey == "sk-real-secret")
+    }
+
     @Test("显式清除 Key 会真正清空，与「留空不修改」区分开")
     func explicitClearRemovesKey() {
         let (viewModel, _) = make()

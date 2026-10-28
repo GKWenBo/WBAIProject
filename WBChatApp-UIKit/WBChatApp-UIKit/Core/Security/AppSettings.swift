@@ -67,6 +67,11 @@ final class AppSettings {
 
     var hasAPIKey: Bool { !apiKey.isEmpty }
 
+    /// 各家 Key 都由可打印 ASCII 组成（字母、数字、- _ . 等），不含空白
+    static func isPlausibleAPIKey(_ key: String) -> Bool {
+        !key.isEmpty && key.unicodeScalars.allSatisfy { (0x21...0x7E).contains($0.value) }
+    }
+
     /// 组装发起请求用的配置快照
     var currentConfig: ProviderConfig {
         ProviderConfig(kind: provider, baseURL: baseURL, apiKey: apiKey, model: model)
