@@ -8,35 +8,57 @@ final class SettingsViewModel {
     var onChange: (() -> Void)?
 
     private let settings: AppSettings
+    private let catalog: ModelCatalogProviding
 
-    /// 切换服务商时会级联修改 model / baseURLText / apiKey，
+    /// 切换服务商、远端刷新时会级联修改多个字段，
     /// 这期间抑制各自的 onChange，结尾只统一发一次，避免连续 reload。
-    private var isBatchingProviderSwitch = false
+    private var isBatchingChanges = false
 
     var provider: ProviderKind {
         didSet {
             guard provider != oldValue else { return }
             // 换服务商时模型与地址都得跟着换，否则会拿 A 家的模型名去请求 B 家
-            isBatchingProviderSwitch = true
-            model = provider.defaultModel
+            isBatchingChanges = true
+            availableModels = catalog.cachedModels(for: provider)
+            model = availableModels.first?.id ?? provider.defaultModel
             baseURLText = provider.defaultBaseURL.absoluteString
             apiKey = settings.apiKey(for: provider)
-            isBatchingProviderSwitch = false
+            isBatchingChanges = false
             onChange?()
+            scheduleModelRefresh()
         }
     }
 
     var model: String { didSet { if model != oldValue { notifyChange() } } }
-    var baseURLText: String { didSet { if baseURLText != oldValue { notifyChange() } } }
-    var apiKey: String { didSet { if apiKey != oldValue { notifyChange() } } }
+    var baseURLText: String {
+        didSet {
+            guard baseURLText != oldValue else { return }
+            notifyChange()
+            if !isBatchingChanges { scheduleModelRefresh() }
+        }
+    }
+    var apiKey: String {
+        didSet {
+            guard apiKey != oldValue else { return }
+            notifyChange()
+            if !isBatchingChanges { scheduleModelRefresh() }
+        }
+    }
     var systemPrompt: String { didSet { if systemPrompt != oldValue { notifyChange() } } }
 
     private func notifyChange() {
-        guard !isBatchingProviderSwitch else { return }
+        guard !isBatchingChanges else { return }
         onChange?()
     }
 
-    var availableModels: [String] { provider.availableModels }
+    /// 设置页展示的模型（最多 3 个）：先用缓存或本地兜底，远端拉取成功后覆盖
+    private(set) var availableModels: [ModelInfo]
+    /// 是否正在拉取远端模型列表
+    private(set) var isLoadingModels = false
+
+    /// 每次刷新递增，晚到的旧结果据此丢弃（如快速连续切换服务商）
+    private var refreshGeneration = 0
+    private var refreshTask: Task<Void, Never>?
 
     /// 只露首 4 尾 4，中间打码
     var maskedAPIKey: String {
@@ -45,13 +67,57 @@ final class SettingsViewModel {
         return "\(apiKey.prefix(4))****\(apiKey.suffix(4))"
     }
 
-    init(settings: AppSettings) {
+    init(settings: AppSettings, catalog: ModelCatalogProviding) {
         self.settings = settings
+        self.catalog = catalog
+        let models = catalog.cachedModels(for: settings.provider)
+        self.availableModels = models
         self.provider = settings.provider
-        self.model = settings.model
+        // 旧版本存下的模型若既不在缓存也不在本地清单（如已下线的 deepseek-chat），换成推荐第一个
+        let knownIDs = Set((models + BundledModelCatalog.models(for: settings.provider)).map(\.id))
+        self.model = knownIDs.contains(settings.model)
+            ? settings.model
+            : (models.first?.id ?? settings.provider.defaultModel)
         self.baseURLText = settings.baseURL.absoluteString
         self.apiKey = settings.apiKey
         self.systemPrompt = settings.systemPrompt
+    }
+
+    /// 在后台刷新模型列表，取消上一次尚未完成的刷新
+    func scheduleModelRefresh() {
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in await self?.refreshModels() }
+    }
+
+    /// 先展示缓存/兜底，再用当前填写的 Key 拉远端；无 Key 或失败时保持兜底列表。
+    /// 远端成功且当前模型已不在远端列表（已下线）时，自动切到推荐的第一个。
+    func refreshModels() async {
+        refreshGeneration += 1
+        let generation = refreshGeneration
+        availableModels = catalog.cachedModels(for: provider)
+
+        guard !apiKey.isEmpty, let url = URL(string: baseURLText) else {
+            isLoadingModels = false
+            onChange?()
+            return
+        }
+        isLoadingModels = true
+        onChange?()
+
+        let config = ProviderConfig(kind: provider, baseURL: url, apiKey: apiKey, model: model)
+        let remote = try? await catalog.fetchLatestModels(config: config)
+        guard generation == refreshGeneration else { return }
+
+        isBatchingChanges = true
+        isLoadingModels = false
+        if let remote, !remote.recommended.isEmpty {
+            availableModels = remote.recommended
+            if !remote.allIDs.contains(model) {
+                model = remote.recommended[0].id
+            }
+        }
+        isBatchingChanges = false
+        onChange?()
     }
 
     /// 输入框留空表示“不修改”，避免用户误触空输入把已保存的真实 Key 清空。

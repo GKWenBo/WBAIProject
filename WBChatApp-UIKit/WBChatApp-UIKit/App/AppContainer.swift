@@ -8,6 +8,8 @@ final class AppContainer {
 
     /// 服务商、模型、系统提示词等用户配置
     let settings = AppSettings()
+    /// 设置页的模型列表：远端拉取 + 本地兜底
+    let modelCatalog = ModelCatalogService()
     /// 会话与消息的持久化入口
     let repository: ChatRepository
 
@@ -73,7 +75,7 @@ final class AppContainer {
 extension AppContainer {
     @MainActor
     func makeSettingsViewController() -> SettingsViewController {
-        SettingsViewController(viewModel: SettingsViewModel(settings: settings))
+        SettingsViewController(viewModel: SettingsViewModel(settings: settings, catalog: modelCatalog))
     }
 }
 

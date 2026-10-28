@@ -43,6 +43,16 @@ enum OpenAIDTO {
         let usage: Usage?
     }
 
+    /// `/v1/models` 响应体（DeepSeek 共用，额外带 name 字段）
+    struct ModelListResponse: Decodable {
+        struct Model: Decodable {
+            let id: String
+            let created: TimeInterval?
+            let name: String?
+        }
+        let data: [Model]
+    }
+
     /// 错误响应体，用于把服务端文案带给用户
     struct ErrorResponse: Decodable {
         struct Payload: Decodable { let message: String? }

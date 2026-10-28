@@ -51,6 +51,16 @@ enum AnthropicDTO {
         let usage: Usage?
     }
 
+    /// `/v1/models` 响应体
+    struct ModelListResponse: Decodable {
+        struct Model: Decodable {
+            let id: String
+            let display_name: String?
+            let created_at: String?
+        }
+        let data: [Model]
+    }
+
     /// 流内 `error` 事件的报文
     struct ErrorEnvelope: Decodable {
         struct Payload: Decodable {

@@ -26,6 +26,7 @@ final class SettingsViewController: UITableViewController {
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "setting")
         tableView.accessibilityIdentifier = "settings.tableView"
         viewModel.onChange = { [weak self] in self?.tableView.reloadData() }
+        viewModel.scheduleModelRefresh()
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -90,10 +91,13 @@ final class SettingsViewController: UITableViewController {
     }
 
     private func presentModelPicker() {
-        let sheet = UIAlertController(title: "选择模型", message: nil, preferredStyle: .actionSheet)
+        let message = viewModel.isLoadingModels ? "正在获取最新模型…" : nil
+        let sheet = UIAlertController(title: "选择模型", message: message, preferredStyle: .actionSheet)
         for model in viewModel.availableModels {
-            sheet.addAction(UIAlertAction(title: model, style: .default) { _ in
-                self.viewModel.model = model
+            let checkmark = model.id == viewModel.model ? "✓ " : ""
+            let badge = model.isSubscription ? "（订阅）" : ""
+            sheet.addAction(UIAlertAction(title: checkmark + model.id + badge, style: .default) { _ in
+                self.viewModel.model = model.id
             })
         }
         sheet.addAction(UIAlertAction(title: "取消", style: .cancel))

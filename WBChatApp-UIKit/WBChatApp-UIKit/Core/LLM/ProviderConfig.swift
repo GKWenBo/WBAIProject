@@ -22,16 +22,8 @@ enum ProviderKind: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// 设置页可选的模型列表，第一个为默认模型
-    var availableModels: [String] {
-        switch self {
-        case .deepSeek:  return ["deepseek-chat", "deepseek-reasoner"]
-        case .openAI:    return ["gpt-4o", "gpt-4o-mini"]
-        case .anthropic: return ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5-20251001"]
-        }
-    }
-
-    var defaultModel: String { availableModels[0] }
+    /// 默认模型取本地推荐清单第一个；可选列表见 `ModelCatalogService`
+    var defaultModel: String { BundledModelCatalog.defaultModel(for: self) }
 
     /// DeepSeek 与 OpenAI 共用 OpenAI 兼容协议，只有 Anthropic 走自己的报文格式。
     var usesAnthropicProtocol: Bool { self == .anthropic }

@@ -19,4 +19,8 @@ protocol ProviderAdapter: Sendable {
     func buildRequest(_ request: ChatRequest, config: ProviderConfig) throws -> URLRequest
     /// 每次请求新建一个 mapper，保证状态不跨请求
     func makeMapper() -> SSEChunkMapper
+    /// 拼装拉取模型列表的请求
+    func buildModelListRequest(config: ProviderConfig) throws -> URLRequest
+    /// 解析模型列表响应体
+    func parseModelList(_ data: Data) throws -> [ModelInfo]
 }

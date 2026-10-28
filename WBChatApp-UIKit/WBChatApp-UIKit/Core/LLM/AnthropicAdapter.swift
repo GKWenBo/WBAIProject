@@ -27,6 +27,41 @@ struct AnthropicAdapter: ProviderAdapter {
     }
 
     func makeMapper() -> SSEChunkMapper { AnthropicChunkMapper() }
+
+    func buildModelListRequest(config: ProviderConfig) throws -> URLRequest {
+        guard !config.apiKey.isEmpty else { throw ChatError.missingAPIKey }
+        var components = URLComponents(url: config.baseURL.appendingPathComponent("v1/models"),
+                                       resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "limit", value: "100")]
+        var urlRequest = URLRequest(url: components.url!)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue(config.apiKey, forHTTPHeaderField: "x-api-key")
+        urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.timeoutInterval = 15
+        return urlRequest
+    }
+
+    /// `created_at` 是 RFC 3339 字符串，可能带小数秒
+    func parseModelList(_ data: Data) throws -> [ModelInfo] {
+        do {
+            let response = try JSONDecoder().decode(AnthropicDTO.ModelListResponse.self, from: data)
+            return response.data.map {
+                ModelInfo(id: $0.id,
+                          displayName: $0.display_name,
+                          createdAt: $0.created_at.flatMap(Self.parseDate))
+            }
+        } catch {
+            throw ChatError.decoding(String(decoding: data, as: UTF8.self))
+        }
+    }
+
+    private static func parseDate(_ raw: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: raw) { return date }
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: raw)
+    }
 }
 
 /// mapper 需要持有状态，但不是为了判断增量类型——文本增量还是思考增量，

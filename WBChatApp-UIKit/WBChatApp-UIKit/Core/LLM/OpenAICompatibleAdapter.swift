@@ -35,6 +35,30 @@ struct OpenAICompatibleAdapter: ProviderAdapter {
     }
 
     func makeMapper() -> SSEChunkMapper { OpenAIChunkMapper() }
+
+    func buildModelListRequest(config: ProviderConfig) throws -> URLRequest {
+        guard !config.apiKey.isEmpty else { throw ChatError.missingAPIKey }
+        var urlRequest = URLRequest(url: config.baseURL.appendingPathComponent("v1/models"))
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.timeoutInterval = 15
+        return urlRequest
+    }
+
+    /// `created` 是 Unix 秒；DeepSeek 不返回，按 nil 处理
+    func parseModelList(_ data: Data) throws -> [ModelInfo] {
+        do {
+            let response = try JSONDecoder().decode(OpenAIDTO.ModelListResponse.self, from: data)
+            return response.data.map {
+                ModelInfo(id: $0.id,
+                          displayName: $0.name,
+                          createdAt: $0.created.map { Date(timeIntervalSince1970: $0) })
+            }
+        } catch {
+            throw ChatError.decoding(String(decoding: data, as: UTF8.self))
+        }
+    }
 }
 
 /// OpenAI 兼容协议的 SSE 映射：无状态，每帧 `data` 独立解析，`[DONE]` 为结束标记。

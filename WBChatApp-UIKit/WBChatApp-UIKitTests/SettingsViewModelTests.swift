@@ -12,16 +12,45 @@ final class InMemoryKeychainStore: KeychainStoring {
     func delete(_ key: String) throws { storage.removeValue(forKey: key) }
 }
 
+/// 可编排的假模型目录：按 Key 决定远端返回或失败，不触网也不写 UserDefaults。
+final class FakeModelCatalog: ModelCatalogProviding, @unchecked Sendable {
+    var cached: [ProviderKind: [ModelInfo]] = [:]
+    var handler: @Sendable (ProviderConfig) async throws -> RemoteModelCatalog = { _ in
+        throw ChatError.network(code: -1)
+    }
+    private(set) var fetchCount = 0
+
+    func cachedModels(for provider: ProviderKind) -> [ModelInfo] {
+        cached[provider] ?? ModelSelectionPolicy.fallback(BundledModelCatalog.models(for: provider))
+    }
+
+    func fetchLatestModels(config: ProviderConfig) async throws -> RemoteModelCatalog {
+        fetchCount += 1
+        return try await handler(config)
+    }
+}
+
 @Suite("设置 ViewModel", .serialized)
 @MainActor
 struct SettingsViewModelTests {
 
-    private func make() -> (SettingsViewModel, AppSettings) {
+    private func make(catalog: FakeModelCatalog = FakeModelCatalog(),
+                      savedAPIKey: String? = nil) -> (SettingsViewModel, AppSettings) {
         let suiteName = "settings.test.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         let settings = AppSettings(defaults: defaults, keychain: InMemoryKeychainStore())
-        return (SettingsViewModel(settings: settings), settings)
+        if let savedAPIKey { try? settings.setAPIKey(savedAPIKey) }
+        return (SettingsViewModel(settings: settings, catalog: catalog), settings)
     }
+
+    private func waitUntil(timeoutSeconds: Double = 2, condition: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while !condition() && Date() < deadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    private func ids(_ models: [ModelInfo]) -> [String] { models.map(\.id) }
 
     @Test("默认服务商是 DeepSeek")
     func defaultProvider() {
@@ -33,29 +62,110 @@ struct SettingsViewModelTests {
     func switchingProviderResetsModelAndBaseURL() {
         let (viewModel, _) = make()
         viewModel.provider = .anthropic
-        #expect(viewModel.model == "claude-sonnet-5")
+        #expect(viewModel.model == BundledModelCatalog.defaultModel(for: .anthropic))
         #expect(viewModel.baseURLText == "https://api.anthropic.com")
     }
 
-    @Test("可选模型列表随服务商变化")
+    @Test("可选模型列表随服务商变化，无 Key 时展示本地兜底且不超过 3 个")
     func availableModelsFollowProvider() {
         let (viewModel, _) = make()
         viewModel.provider = .openAI
-        #expect(viewModel.availableModels.contains("gpt-4o"))
+        #expect(ids(viewModel.availableModels).contains("gpt-6-astra"))
+        #expect(viewModel.availableModels.count <= 3)
         viewModel.provider = .anthropic
-        #expect(viewModel.availableModels.contains("claude-sonnet-5"))
+        #expect(ids(viewModel.availableModels).contains("claude-sonnet-5-5"))
+        #expect(viewModel.availableModels.count <= 3)
+    }
+
+    @Test("没有 Key 时不请求远端，保持本地兜底列表")
+    func refreshWithoutKeyKeepsBundled() async {
+        let catalog = FakeModelCatalog()
+        let (viewModel, _) = make(catalog: catalog)
+        await viewModel.refreshModels()
+        #expect(catalog.fetchCount == 0)
+        #expect(viewModel.availableModels == ModelSelectionPolicy.fallback(BundledModelCatalog.models(for: .deepSeek)))
+        #expect(viewModel.isLoadingModels == false)
+    }
+
+    @Test("远端拉取成功后覆盖本地兜底列表")
+    func remoteResultOverridesBundled() async {
+        let catalog = FakeModelCatalog()
+        let latest = [ModelInfo(id: "deepseek-flash", isSubscription: true), ModelInfo(id: "deepseek-v5")]
+        catalog.handler = { _ in RemoteModelCatalog(recommended: latest, allIDs: ["deepseek-flash", "deepseek-v5"]) }
+        let (viewModel, _) = make(catalog: catalog, savedAPIKey: "sk-test")
+        await viewModel.refreshModels()
+        #expect(viewModel.availableModels == latest)
+        #expect(viewModel.model == "deepseek-flash")
+    }
+
+    @Test("远端失败时保留兜底列表，不改用户已选模型")
+    func remoteFailureKeepsBundledAndSelection() async {
+        let catalog = FakeModelCatalog()
+        let (viewModel, _) = make(catalog: catalog, savedAPIKey: "sk-test")
+        viewModel.model = "deepseek-v4-pro"
+        await viewModel.refreshModels()
+        #expect(catalog.fetchCount >= 1)
+        #expect(viewModel.availableModels == ModelSelectionPolicy.fallback(BundledModelCatalog.models(for: .deepSeek)))
+        #expect(viewModel.model == "deepseek-v4-pro")
+    }
+
+    @Test("当前选中模型已从远端下线时自动切到推荐第一个")
+    func retiredModelSwitchesToFirstRecommended() async {
+        let catalog = FakeModelCatalog()
+        // 上次远端结果里还有 deepseek-old，这次远端已没有
+        catalog.cached[.deepSeek] = [ModelInfo(id: "deepseek-old"), ModelInfo(id: "deepseek-flash")]
+        let latest = [ModelInfo(id: "deepseek-flash", isSubscription: true)]
+        catalog.handler = { _ in RemoteModelCatalog(recommended: latest, allIDs: ["deepseek-flash"]) }
+        let (_, settings) = make(catalog: catalog, savedAPIKey: "sk-test")
+        settings.model = "deepseek-old"
+        let viewModel = SettingsViewModel(settings: settings, catalog: catalog)
+        #expect(viewModel.model == "deepseek-old")
+        await viewModel.refreshModels()
+        #expect(viewModel.model == "deepseek-flash")
+    }
+
+    @Test("启动时已存的模型既不在缓存也不在本地清单，直接换成推荐第一个")
+    func unknownStoredModelReplacedOnInit() {
+        let (_, settings) = make()
+        settings.model = "deepseek-chat"   // 模拟升级前存下的已下线模型
+        let viewModel = SettingsViewModel(settings: settings, catalog: FakeModelCatalog())
+        #expect(viewModel.model == "deepseek-flash")
+    }
+
+    @Test("晚到的旧刷新结果被丢弃，不覆盖新结果")
+    func staleRefreshResultIsDropped() async {
+        let catalog = FakeModelCatalog()
+        let old = [ModelInfo(id: "old-model")]
+        let new = [ModelInfo(id: "new-model")]
+        catalog.handler = { config in
+            if config.apiKey == "sk-slow" {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                return RemoteModelCatalog(recommended: old, allIDs: ["old-model"])
+            }
+            return RemoteModelCatalog(recommended: new, allIDs: ["new-model"])
+        }
+        let (viewModel, _) = make(catalog: catalog, savedAPIKey: "sk-slow")
+        let slow = Task { await viewModel.refreshModels() }
+        await waitUntil { catalog.fetchCount == 1 }
+
+        viewModel.apiKey = "sk-fast"   // 触发新一轮刷新
+        await waitUntil { viewModel.availableModels == new }
+        await slow.value
+
+        #expect(viewModel.availableModels == new)
+        #expect(viewModel.model == "new-model")
     }
 
     @Test("save 后设置落盘")
     func savePersists() {
         let (viewModel, settings) = make()
         viewModel.provider = .openAI
-        viewModel.model = "gpt-4o-mini"
+        viewModel.model = "gpt-6.1-sol"
         viewModel.systemPrompt = "简短作答"
         viewModel.save()
 
         #expect(settings.provider == .openAI)
-        #expect(settings.model == "gpt-4o-mini")
+        #expect(settings.model == "gpt-6.1-sol")
         #expect(settings.systemPrompt == "简短作答")
     }
 
@@ -109,7 +219,7 @@ struct SettingsViewModelTests {
         viewModel.provider = .openAI   // 先切换，排除级联赋值的干扰
         var count = 0
         viewModel.onChange = { count += 1 }
-        viewModel.model = "gpt-4o-mini"   // 与 openAI 的默认模型 "gpt-4o" 不同，确保确实发生了变化
+        viewModel.model = "gpt-6.1-sol"   // 与 openAI 的默认模型 "gpt-6-astra" 不同，确保确实发生了变化
         #expect(count == 1)
     }
 
